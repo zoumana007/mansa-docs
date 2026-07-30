@@ -36,4 +36,6 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 ## Statut
 
-Les volumes 1 à 4 possèdent leur première spécification structurée et leurs contrats techniques associés. Le Volume 5 consacré à l’administration est en cours de construction. Les volumes 6 à 10, les applications exécutables et les modules backend complets restent à produire et à valider.
+Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. La documentation doit encore être enrichie avec les critères de recette détaillés, matrices de permissions, catalogues d’API, runbooks spécialisés et décisions d’architecture.
+
+Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
