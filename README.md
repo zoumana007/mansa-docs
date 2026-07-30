@@ -36,4 +36,4 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 ## Statut
 
-Le Volume 1 est en cours de constitution. Il sert de référence au socle de `zoumana007/mansa-platform`.
+Les volumes 1 à 4 possèdent leur première spécification structurée et leurs contrats techniques associés. Le Volume 5 consacré à l’administration est en cours de construction. Les volumes 6 à 10, les applications exécutables et les modules backend complets restent à produire et à valider.
