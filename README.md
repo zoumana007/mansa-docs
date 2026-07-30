@@ -1,6 +1,6 @@
 # Mansa — Documentation officielle
 
-Ce dépôt contient le cahier des charges, l’architecture, les règles métier et les prompts de développement de la plateforme fintech Mansa.
+Ce dépôt contient le cahier des charges, l’architecture, les règles métier, les critères de recette et les instructions de développement de la plateforme fintech Mansa. Le code source correspondant est conservé dans `zoumana007/mansa-platform`.
 
 ## Organisation
 
@@ -23,7 +23,17 @@ Ce dépôt contient le cahier des charges, l’architecture, les règles métier
 4. Les intégrations externes passent par des adaptateurs isolés.
 5. Aucun secret ni identifiant de production n’est stocké dans le dépôt.
 6. Le développement progresse module par module, avec validation technique avant intégration.
+7. Chaque exigence doit être testable ou accompagnée d’un critère d’acceptation.
+8. Les chemins, scripts et noms de modules documentés doivent correspondre au dépôt plateforme.
+
+## Ordre de construction
+
+Le travail suit les dépendances réelles : socle technique, identité et conformité, comptes et grand livre, paiements, applications, administration, services publics, données, exploitation puis recette de production.
+
+## Règles de contenu
+
+Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne doit être ajouté. Les hypothèses juridiques et réglementaires restent à valider avec les banques, opérateurs, autorités et conseils compétents avant toute mise en production.
 
 ## Statut
 
-Le Volume 1 est en cours de constitution. Il sert de base au dépôt `zoumana007/mansa-platform`.
+Le Volume 1 est en cours de constitution. Il sert de référence au socle de `zoumana007/mansa-platform`.
