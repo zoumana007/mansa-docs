@@ -47,6 +47,27 @@ Le contrat `WalletRepository` isole le domaine de Prisma, PostgreSQL et de tout 
 
 Les critères de recherche couvrent le propriétaire, la devise et le statut. Les adaptateurs de production devront ajouter pagination, indexation, contrôle de version et gestion explicite de la concurrence.
 
+## Service applicatif
+
+`WalletService` constitue la façade métier utilisée par les futurs contrôleurs API et consommateurs de messages. Il orchestre la création, la consultation et les mutations sans exposer la technologie de persistance.
+
+Commandes disponibles :
+
+- `create(input)` ;
+- `credit(input)` ;
+- `debit(input)` ;
+- `suspend(walletId)` ;
+- `activate(walletId)` ;
+- `close(walletId)`.
+
+Consultations disponibles :
+
+- `get(walletId)`, qui échoue avec `WalletNotFoundError` si l’identifiant est inconnu ;
+- `listByOwnerId(ownerId)` ;
+- `search(criteria)` avec filtrage par propriétaire, devise et statut.
+
+La façade ne remplace pas les contrôles d’autorisation : l’API devra vérifier que l’appelant possède les droits nécessaires avant d’exécuter une consultation ou une commande.
+
 ## Implémentation en mémoire
 
 `InMemoryWalletRepository` sert de double de test et d’adaptateur local minimal. Il ne doit pas être utilisé en production car il ne fournit ni durabilité, ni isolation transactionnelle, ni verrouillage optimiste, ni protection contre plusieurs instances.
@@ -57,9 +78,11 @@ L’implémentation de référence se trouve dans :
 
 - `packages/domain/src/wallet.ts` ;
 - `packages/domain/src/wallet-repository.ts` ;
+- `packages/domain/src/wallet-service.ts` ;
 - `packages/domain/src/index.ts` ;
 - `packages/domain/test/wallet.test.mjs` ;
-- `packages/domain/test/wallet-repository.test.mjs`.
+- `packages/domain/test/wallet-repository.test.mjs` ;
+- `packages/domain/test/wallet-service.test.mjs`.
 
 ## Exigences de l’adaptateur Prisma
 
@@ -82,6 +105,7 @@ L’adaptateur de production devra :
 - un débit supérieur au solde disponible échoue ;
 - un wallet suspendu ne peut pas être crédité ou débité ;
 - un wallet non nul ne peut pas être fermé ;
+- la consultation d’un identifiant absent échoue explicitement ;
 - la recherche par propriétaire, devise et statut est couverte par des tests ;
 - le package domaine n’importe aucune technologie de persistance.
 
