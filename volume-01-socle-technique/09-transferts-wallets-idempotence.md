@@ -25,10 +25,11 @@ Les identifiants textuels sont normalisés avant comparaison. Une valeur vide ap
 3. Le montant ne doit jamais être représenté par un nombre flottant.
 4. La devise doit être explicite et compatible avec les deux wallets.
 5. La date de complétion doit être valide avant toute écriture.
-6. L’exécution atomique doit retourner un objet contenant un `transactionId` de type chaîne, non vide après normalisation.
-7. Un résultat d’exécution nul, incomplet ou d’un type inattendu doit être refusé avant l’enregistrement du résultat idempotent.
-8. Les métadonnées doivent être validées avant toute mutation financière.
-9. Un échec de validation ne doit produire aucune écriture ni événement métier.
+6. Une date reçue ou exposée par un objet métier doit être copiée afin qu’une mutation externe ne puisse pas modifier l’historique du transfert.
+7. L’exécution atomique doit retourner un objet contenant un `transactionId` de type chaîne, non vide après normalisation.
+8. Un résultat d’exécution nul, incomplet ou d’un type inattendu doit être refusé avant l’enregistrement du résultat idempotent.
+9. Les métadonnées doivent être validées avant toute mutation financière.
+10. Un échec de validation ne doit produire aucune écriture ni événement métier.
 
 ## 4. Idempotence
 
@@ -99,6 +100,7 @@ Les métriques minimales couvrent : volume, succès, échec, conflit d’idempot
 - Un identifiant de transaction vide est refusé.
 - Un résultat d’exécution nul, incomplet ou non typé est refusé sans enregistrement.
 - Une date invalide est refusée avant mutation.
+- La mutation de la date fournie au constructeur ou renvoyée par l’objet ne modifie jamais la date interne sérialisée.
 - Des métadonnées invalides sont refusées avant mutation.
 - Les tests du paquet `@mansa/domain` réussissent.
 - La documentation du paquet renvoie aux mêmes invariants.
