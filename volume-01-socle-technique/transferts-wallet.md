@@ -17,6 +17,12 @@ Le transfert interne déplace un montant entre deux wallets Mansa sans passer pa
 - Une clé d’idempotence déjà liée au même transfert doit rejouer le résultat sans nouvelle mutation.
 - Une clé d’idempotence liée à un autre transfert doit être refusée.
 
+## Ordre des validations
+
+Les valeurs nécessaires à la traçabilité, notamment l’identifiant de transaction, doivent être générées et validées avant toute modification de wallet. Une erreur de génération ne doit provoquer ni débit, ni crédit, ni appel de persistance.
+
+Après cette validation préalable, l’exécution vérifie l’existence des wallets, la compatibilité des devises puis la disponibilité du solde avant d’enregistrer les nouvelles valeurs.
+
 ## Atomicité attendue
 
 L’exécuteur de domaine prépare le débit, le crédit et le résultat de transaction. L’adaptateur de persistance doit l’exécuter dans une transaction PostgreSQL unique avec verrouillage des lignes wallet concernées.
@@ -40,6 +46,7 @@ Les wallets doivent être verrouillés dans un ordre déterministe, par exemple 
 - `TransferWalletNotFoundError` : wallet source ou destination absent.
 - `TransferCurrencyMismatchError` : devises incompatibles.
 - Solde insuffisant : refus sans persistance.
+- Identifiant de transaction vide : refus avant lecture ou mutation des wallets.
 - Wallet suspendu ou fermé : refus sans persistance.
 - Conflit d’idempotence : refus sans nouvelle mutation.
 
@@ -49,6 +56,7 @@ L’API Gateway traduit ces erreurs en réponses stables, sans exposer de détai
 
 - Un transfert XOF valide débite et crédite exactement le même montant.
 - Les deux wallets reçoivent la même date de mise à jour.
+- Un identifiant de transaction vide ne provoque aucune mutation ni sauvegarde.
 - Un wallet absent ne provoque aucune sauvegarde.
 - Une incompatibilité de devise ne modifie aucun solde.
 - Un solde insuffisant ne modifie aucun solde.
@@ -58,6 +66,6 @@ L’API Gateway traduit ces erreurs en réponses stables, sans exposer de détai
 
 ## État d’implémentation
 
-Le package `@mansa/domain` contient le service de transfert, le port de dépôt wallet et l’exécuteur wallet. Les tests unitaires couvrent le chemin nominal, les wallets absents, les devises incompatibles et le solde insuffisant.
+Le package `@mansa/domain` contient le service de transfert, le port de dépôt wallet et l’exécuteur wallet. Les tests unitaires couvrent le chemin nominal, la génération invalide d’identifiant, les wallets absents, les devises incompatibles et le solde insuffisant.
 
 Le prochain lot doit fournir l’adaptateur Prisma transactionnel, les écritures de grand livre en partie double et les tests d’intégration PostgreSQL.
