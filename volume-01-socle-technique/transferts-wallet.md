@@ -13,15 +13,18 @@ Le transfert interne déplace un montant entre deux wallets Mansa sans passer pa
 - Le wallet source doit disposer d’un solde disponible suffisant.
 - Un transfert ne doit jamais produire de solde négatif.
 - Le débit et le crédit doivent partager la même date métier.
-- L’identifiant de transaction généré ne doit pas être vide.
+- La date de complétion doit être valide avant toute mutation atomique.
+- L’identifiant de transaction généré ne doit pas être vide et doit être normalisé.
 - Une clé d’idempotence déjà liée au même transfert doit rejouer le résultat sans nouvelle mutation.
 - Une clé d’idempotence liée à un autre transfert doit être refusée.
 
 ## Ordre des validations
 
-Les valeurs nécessaires à la traçabilité, notamment l’identifiant de transaction, doivent être générées et validées avant toute modification de wallet. Une erreur de génération ne doit provoquer ni débit, ni crédit, ni appel de persistance.
+Les valeurs nécessaires à la traçabilité doivent être validées le plus tôt possible. La date de complétion est contrôlée avant d’appeler l’exécuteur atomique. Une date invalide ne doit provoquer ni débit, ni crédit, ni persistance.
 
-Après cette validation préalable, l’exécution vérifie l’existence des wallets, la compatibilité des devises puis la disponibilité du solde avant d’enregistrer les nouvelles valeurs.
+L’exécuteur wallet génère et valide ensuite l’identifiant de transaction avant toute modification de wallet. Après ces validations préalables, l’exécution vérifie l’existence des wallets, la compatibilité des devises puis la disponibilité du solde avant d’enregistrer les nouvelles valeurs.
+
+Le service normalise également l’identifiant retourné par l’exécuteur avant de construire le résultat persistant. Un identifiant vide doit être refusé et ne doit jamais être enregistré.
 
 ## Atomicité attendue
 
@@ -45,8 +48,8 @@ Les wallets doivent être verrouillés dans un ordre déterministe, par exemple 
 
 - `TransferWalletNotFoundError` : wallet source ou destination absent.
 - `TransferCurrencyMismatchError` : devises incompatibles.
+- `InvalidTransferExecutionError` : date de complétion invalide ou identifiant de transaction vide.
 - Solde insuffisant : refus sans persistance.
-- Identifiant de transaction vide : refus avant lecture ou mutation des wallets.
 - Wallet suspendu ou fermé : refus sans persistance.
 - Conflit d’idempotence : refus sans nouvelle mutation.
 
@@ -56,7 +59,9 @@ L’API Gateway traduit ces erreurs en réponses stables, sans exposer de détai
 
 - Un transfert XOF valide débite et crédite exactement le même montant.
 - Les deux wallets reçoivent la même date de mise à jour.
-- Un identifiant de transaction vide ne provoque aucune mutation ni sauvegarde.
+- Une date de complétion invalide empêche l’appel à l’exécuteur atomique.
+- Un identifiant de transaction vide ne peut pas être enregistré.
+- Un identifiant entouré d’espaces est normalisé avant persistance.
 - Un wallet absent ne provoque aucune sauvegarde.
 - Une incompatibilité de devise ne modifie aucun solde.
 - Un solde insuffisant ne modifie aucun solde.
@@ -66,6 +71,6 @@ L’API Gateway traduit ces erreurs en réponses stables, sans exposer de détai
 
 ## État d’implémentation
 
-Le package `@mansa/domain` contient le service de transfert, le port de dépôt wallet et l’exécuteur wallet. Les tests unitaires couvrent le chemin nominal, la génération invalide d’identifiant, les wallets absents, les devises incompatibles et le solde insuffisant.
+Le package `@mansa/domain` contient le service de transfert, le port de dépôt wallet et l’exécuteur wallet. Les tests unitaires couvrent le chemin nominal, la normalisation de l’identifiant de transaction, les métadonnées invalides, les wallets absents, les devises incompatibles et le solde insuffisant.
 
 Le prochain lot doit fournir l’adaptateur Prisma transactionnel, les écritures de grand livre en partie double et les tests d’intégration PostgreSQL.
