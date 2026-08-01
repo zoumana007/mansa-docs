@@ -4,7 +4,7 @@ Ce dépôt contient le cahier des charges, l’architecture, les règles métier
 
 ## Organisation
 
-- `volume-01-socle-technique/` : vision, architecture, monorepo, backend, données, sécurité et CI/CD.
+- `volume-01-socle-technique/` : vision, architecture, monorepo, backend, données, sécurité, décisions d’architecture et CI/CD.
 - `volume-02-application-client/` : application mobile client.
 - `volume-03-application-commercant/` : application commerçant.
 - `volume-04-application-tpe/` : application TPE Android.
@@ -36,6 +36,6 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 ## Statut
 
-Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. La documentation doit encore être enrichie avec les critères de recette détaillés, matrices de permissions, catalogues d’API, runbooks spécialisés et décisions d’architecture.
+Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo. La documentation doit encore être enrichie avec les critères de recette détaillés, matrices de permissions, catalogues d’API, runbooks spécialisés et décisions complémentaires.
 
 Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
