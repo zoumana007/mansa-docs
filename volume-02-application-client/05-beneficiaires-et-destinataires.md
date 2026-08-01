@@ -73,6 +73,14 @@ Les catalogues et gardes de type sont couverts par des tests dans :
 mansa-platform/packages/contracts/test/beneficiary.test.mjs
 ```
 
+Le contrat est exporté depuis l'entrée principale `@mansa/contracts` et depuis le sous-chemin public dédié :
+
+```ts
+import type { Beneficiary } from '@mansa/contracts/beneficiary';
+```
+
+Le sous-chemin est déclaré dans `packages/contracts/package.json` et pointe vers les fichiers générés `dist/beneficiary.js` et `dist/beneficiary.d.ts`.
+
 ## 7. API cible
 
 | Route | Usage |
@@ -95,4 +103,4 @@ mansa-platform/packages/contracts/test/beneficiary.test.mjs
 
 ## 9. Évolutions prévues
 
-Les prochains lots devront ajouter l'export public du contrat, les schémas de validation d'entrée, le stockage backend, la résolution des coordonnées partenaires, l'évaluation de risque et l'intégration au parcours de transfert.
+Les prochains lots devront ajouter les schémas de validation d'entrée, le stockage backend, la résolution des coordonnées partenaires, l'évaluation de risque et l'intégration au parcours de transfert.
