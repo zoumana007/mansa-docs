@@ -175,3 +175,33 @@ Les journaux ne doivent pas contenir de secret, de code PIN, de jeton complet ni
 ## 10. Correspondance avec le code
 
 Le catalogue canonique et les primitives d’évaluation sont implémentés dans `mansa-platform/packages/security`. Les applications et services ne doivent pas redéfinir localement des chaînes de permissions concurrentes.
+
+Les fichiers de référence sont :
+
+- `packages/security/src/index.ts` pour les rôles et permissions ;
+- `packages/security/src/role-policy.ts` pour l’attribution minimale par rôle ;
+- `packages/security/src/permission-policy.ts` pour le domaine, la sensibilité, le motif obligatoire et la double approbation en Production.
+
+## 11. Politique canonique des actions critiques
+
+Les permissions suivantes exigent systématiquement une double approbation en Production :
+
+- `ledger.adjustment.approve` ;
+- `merchant.settlement.configure` ;
+- `feature_flag.manage` ;
+- `fee_rule.manage` ;
+- `limit_rule.manage` ;
+- `partner.manage` ;
+- `public_service.configure`.
+
+Toute permission marquée `productionDualApproval` doit également être marquée `sensitive` et `requiresReason`. L’initiateur et l’approbateur doivent être distincts, autorisés et dans un périmètre compatible.
+
+Le motif est notamment obligatoire pour les suspensions, décisions KYC, lectures de documents sensibles, gels de comptes, remboursements, annulations, ajustements, modifications de configuration, exports et annulations de dossiers publics.
+
+Les tests `role-policy.test.ts` et `permission-policy.test.ts` garantissent que :
+
+- chaque rôle et chaque permission possèdent une politique explicite ;
+- aucune permission inconnue ou dupliquée n’est accordée ;
+- les comptes de service restent sans privilège implicite ;
+- la séparation des tâches financières est maintenue ;
+- toute opération à double approbation est sensible et exige un motif.
