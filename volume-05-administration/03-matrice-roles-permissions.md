@@ -1,202 +1,118 @@
 # Matrice des rôles et permissions
 
-## Objet
+## 1. Objet
 
-Cette matrice définit le modèle d’autorisation commun à la plateforme Mansa. Elle complète les contrats techniques `AuthorizationActor`, `AuthorizationResource` et `AuthorizationContext` du dépôt `mansa-platform`.
+Cette matrice définit les droits de base attribués aux rôles Mansa. Elle correspond au contrat technique `packages/security/src/role-policy.ts` du dépôt `mansa-platform`.
 
-Les rôles fournissent un ensemble de permissions par défaut. L’autorisation finale tient également compte du périmètre de l’acteur, du pays, de l’organisation, du commerçant, du point de vente, de l’environnement, du niveau d’authentification, du montant et des obligations de double validation.
+Les permissions attribuées par rôle ne suffisent jamais seules à autoriser une action. L’autorisation finale combine :
 
-## Convention de nommage
+- les permissions RBAC du rôle ;
+- le périmètre ABAC de l’acteur (`countryCode`, `organizationId`, `merchantId`, `storeId`, `agencyId`) ;
+- la propriété de la ressource pour un client ;
+- le niveau de risque ;
+- les limites métier et financières ;
+- la double validation lorsqu’elle est exigée.
 
-Une permission suit le format `domaine.ressource.action`.
+## 2. Rôles plateforme
 
-Exemples :
+### `SUPER_ADMIN`
 
-- `identity.user.read`
-- `merchant.payment.refund`
-- `administration.feature-flag.update`
-- `public-service.fine.collect`
-- `finance.reconciliation.approve`
+Rôle exceptionnel de gouvernance globale. Il peut administrer la plateforme, les partenaires, la configuration, les fonctions publiques et les règles financières. Les opérations critiques restent soumises à double validation et audit.
 
-Les permissions sont stables, versionnées et ne doivent jamais être construites à partir d’un libellé traduit.
+### `PLATFORM_ADMIN`
 
-## Types d’acteurs
+Administre les utilisateurs, comptes, commerçants, terminaux, fonctions et configurations dans son périmètre. Il ne dispose pas des droits d’approbation KYC ni d’ajustement comptable final par défaut.
 
-| Type technique | Description | Périmètre minimal |
-|---|---|---|
-| `USER` | Client particulier | Propre identité et propres comptes |
-| `MERCHANT_MEMBER` | Propriétaire ou employé d’un commerce | Commerçant et points de vente assignés |
-| `PUBLIC_AGENT` | Agent d’un organisme public | Organisation, service et zone assignés |
-| `ADMIN` | Collaborateur Mansa ou partenaire habilité | Portée explicite par rôle et attributs |
-| `SERVICE` | Service technique ou worker | Compte de service, environnement et finalité |
+### `COMPLIANCE_OFFICER`
 
-## Rôles de référence
+Consulte et traite les dossiers KYC, accède aux documents sensibles, peut geler un compte et exporter les données nécessaires aux contrôles de conformité.
 
-### Client
+### `RISK_ANALYST`
 
-| Rôle | Permissions principales | Restrictions |
-|---|---|---|
-| `CLIENT` | Consulter profil, comptes, cartes, transactions ; créer transferts et paiements ; gérer bénéficiaires | Ressources propres uniquement ; limites KYC et risque |
+Analyse utilisateurs, comptes, paiements, ledger et commerçants. Il peut geler un compte selon les procédures de risque mais ne modifie pas la configuration métier.
 
-### Commerçant
+### `FINANCE_OPERATOR`
 
-| Rôle | Permissions principales | Restrictions |
-|---|---|---|
-| `MERCHANT_OWNER` | Gérer commerce, membres, points de vente, TPE, paiements, remboursements, règlements et exports | Commerçant possédé ; authentification renforcée pour actions sensibles |
-| `MERCHANT_MANAGER` | Gérer opérations, employés, catalogue et rapports | Pas de changement de propriétaire ni de coordonnées de règlement sans approbation |
-| `MERCHANT_CASHIER` | Encaisser, consulter ses opérations, réimprimer un reçu | Point de vente et terminal assignés ; aucun export massif |
-| `MERCHANT_ACCOUNTANT` | Consulter règlements, rapprochements, factures et exports financiers | Lecture financière ; aucun encaissement ni changement de configuration |
-| `MERCHANT_SUPPORT` | Consulter état opérationnel et ouvrir des tickets | Données financières sensibles masquées |
+Consulte les comptes, paiements, règlements et le ledger. Il peut initier un ajustement comptable ou un remboursement, mais ne peut pas approuver son propre ajustement.
 
-### Services publics
+### `SUPPORT_AGENT`
 
-| Rôle | Permissions principales | Restrictions |
-|---|---|---|
-| `PUBLIC_AGENT_COLLECTOR` | Rechercher une obligation, constater et collecter un paiement, émettre un reçu | Organisation, service et zone assignés ; aucune modification du barème |
-| `PUBLIC_AGENT_SUPERVISOR` | Superviser agents, annuler selon procédure, consulter rapports | Double validation pour annulation et correction |
-| `PUBLIC_ORG_ADMIN` | Gérer agents, services, barèmes, catalogues et habilitations | Organisation propre ; changements critiques approuvés |
-| `SCHOLARSHIP_REVIEWER` | Examiner dossiers de bourse et proposer une décision | Aucun paiement direct ; séparation entre instruction et paiement |
-| `STUDENT_CARD_OPERATOR` | Vérifier l’éligibilité et lancer l’émission d’une carte étudiante | Établissements assignés ; données minimales nécessaires |
+Accède uniquement aux données nécessaires au traitement d’un dossier support. Il ne peut ni lire les documents KYC sensibles, ni modifier le ledger, ni configurer des commissions.
 
-### Administration Mansa
+### `AUDITOR`
 
-| Rôle | Permissions principales | Restrictions |
-|---|---|---|
-| `SUPPORT_AGENT` | Rechercher client, consulter état, gérer tickets, déclencher procédures autorisées | Données masquées ; aucune écriture financière directe |
-| `SUPPORT_SUPERVISOR` | Superviser support, déverrouiller selon procédure, approuver certaines actions | Actions sensibles auditées et limitées |
-| `KYC_REVIEWER` | Examiner documents et décider du niveau KYC | Accès KYC justifié, journalisé et limité au pays assigné |
-| `COMPLIANCE_OFFICER` | Gérer alertes, restrictions et déclarations internes | Séparation avec les opérations commerciales |
-| `RISK_ANALYST` | Consulter signaux de risque, créer règles et recommandations | Activation d’une règle bloquante soumise à approbation |
-| `FINANCE_OPERATOR` | Rapprochement, règlements, écritures d’ajustement proposées | Ne peut pas approuver sa propre proposition |
-| `FINANCE_APPROVER` | Approuver règlements et ajustements | Authentification renforcée et principe des quatre yeux |
-| `PARTNER_MANAGER` | Gérer banques, opérateurs et paramètres non secrets | Aucun secret visible ; activation Production approuvée |
-| `PRODUCT_ADMIN` | Gérer produits, limites, frais, contenu et fonctionnalités | Changements Production critiques soumis à double validation |
-| `SECURITY_ADMIN` | Gérer politiques de sécurité, sessions, incidents et habilitations techniques | Aucun pouvoir financier métier par défaut |
-| `AUDITOR` | Lecture des audits, configurations, décisions et preuves | Lecture seule ; exports tracés et filtrés |
-| `COUNTRY_ADMIN` | Administrer un pays dans les limites déléguées | Aucun accès aux autres pays |
-| `SUPER_ADMIN` | Administrer la plateforme et déléguer des rôles | Usage exceptionnel ; authentification matérielle ; double validation ; accès temporaire recommandé |
+Rôle majoritairement en lecture : identité, KYC, comptes, paiements, ledger, commerçants, configuration, audit, services publics et exports. Aucune mutation financière ou opérationnelle n’est accordée par défaut.
 
-### Services techniques
+## 3. Rôles commerçant
 
-| Rôle | Permissions principales | Restrictions |
-|---|---|---|
-| `SERVICE_API_GATEWAY` | Valider identité, autoriser requêtes et orchestrer appels | Aucun accès interactif ; environnement fixé |
-| `SERVICE_WORKER` | Consommer événements et exécuter tâches ciblées | Permission par file et type de tâche |
-| `SERVICE_NOTIFICATION` | Envoyer notifications demandées | Aucun accès au solde complet ni aux secrets d’authentification |
-| `SERVICE_RECONCILIATION` | Lire flux financiers et produire rapprochements | Ne peut pas approuver les écarts |
-| `SERVICE_AI` | Traiter les données minimales autorisées pour Jini, fraude ou support | Finalité, rétention et champs explicitement limités |
+### `MERCHANT_OWNER`
 
-## Catalogue minimal des permissions
+Gère son commerce, ses employés, ses terminaux, ses règlements et les opérations TPE autorisées dans son propre périmètre.
 
-### Identité et conformité
+### `MERCHANT_MANAGER`
 
-| Permission | Description | Niveau minimal |
-|---|---|---|
-| `identity.profile.read-own` | Lire son propre profil | Facteur principal |
-| `identity.profile.update-own` | Modifier son propre profil | Facteur principal |
-| `identity.session.revoke-own` | Révoquer une de ses sessions | Facteur principal |
-| `identity.user.read` | Consulter une identité selon périmètre | Multi-facteur pour administration |
-| `identity.user.restrict` | Restreindre un compte | Multi-facteur + justification |
-| `kyc.case.read` | Consulter un dossier KYC | Multi-facteur + motif audité |
-| `kyc.case.review` | Examiner un dossier KYC | Multi-facteur |
-| `kyc.case.decide` | Décider du statut KYC | Multi-facteur ; séparation configurable |
+Gère les employés et terminaux du ou des points de vente qui lui sont affectés. Il consulte les règlements et réalise les opérations de vente, remboursement et clôture de caisse autorisées.
 
-### Portefeuille, paiement et cartes
+### `MERCHANT_CASHIER`
 
-| Permission | Description | Niveau minimal |
-|---|---|---|
-| `wallet.balance.read-own` | Lire ses soldes | Facteur principal |
-| `payment.create-own` | Initier un paiement | Facteur principal ou renforcé selon risque |
-| `transfer.create-own` | Initier un transfert | Facteur principal ou renforcé selon montant |
-| `beneficiary.manage-own` | Gérer ses bénéficiaires | Renforcement pour nouveau bénéficiaire |
-| `card.manage-own` | Gérer statut, limites et contrôles de ses cartes | Multi-facteur pour actions sensibles |
-| `merchant.payment.collect` | Encaisser un paiement | Terminal ou session autorisée |
-| `merchant.payment.refund` | Initier un remboursement | Multi-facteur selon montant |
-| `merchant.settlement.read` | Consulter les règlements | Facteur principal |
-| `finance.adjustment.propose` | Proposer un ajustement | Multi-facteur |
-| `finance.adjustment.approve` | Approuver un ajustement | Multi-facteur ; auteur différent |
-| `finance.reconciliation.approve` | Valider un rapprochement | Multi-facteur ; auteur différent |
+Réalise les ventes, remboursements permis et clôtures de caisse sur le magasin et le terminal affectés. Il ne gère ni les employés, ni les paramètres de règlement.
 
-### Administration et configuration
+## 4. Rôles services publics
 
-| Permission | Description | Niveau minimal |
-|---|---|---|
-| `administration.role.read` | Lire rôles et permissions | Multi-facteur |
-| `administration.role.assign` | Affecter ou retirer un rôle | Multi-facteur ; approbation selon portée |
-| `administration.feature-flag.update` | Modifier un drapeau de fonctionnalité | Multi-facteur ; approbation en Production |
-| `administration.fee.update` | Modifier frais et commissions | Multi-facteur ; double validation en Production |
-| `administration.limit.update` | Modifier limites produit ou risque | Multi-facteur ; double validation en Production |
-| `administration.partner.activate` | Activer une intégration partenaire | Multi-facteur ; validation technique et métier |
-| `audit.event.read` | Consulter le journal d’audit | Multi-facteur ; périmètre limité |
-| `audit.export.create` | Exporter des événements d’audit | Multi-facteur ; export tracé |
+### `PUBLIC_AGENCY_ADMIN`
 
-### Services publics
+Configure les services de son organisme, gère les agents, crée ou annule des dossiers publics, supervise les encaissements et accède aux exports et journaux de son agence.
 
-| Permission | Description | Niveau minimal |
-|---|---|---|
-| `public-service.obligation.read` | Rechercher une obligation | Facteur principal sur appareil autorisé |
-| `public-service.fine.create` | Constater une amende | Appareil et agent identifiés |
-| `public-service.payment.collect` | Collecter le paiement d’une obligation | Appareil autorisé ; reçu obligatoire |
-| `public-service.payment.cancel` | Annuler ou corriger une collecte | Multi-facteur ; double validation |
-| `public-service.catalog.update` | Modifier services, barèmes ou règles | Multi-facteur ; double validation en Production |
-| `public-service.scholarship.review` | Examiner une bourse | Multi-facteur |
-| `public-service.scholarship.decide` | Décider une bourse | Multi-facteur ; séparation avec paiement |
-| `public-service.student-card.issue` | Émettre une carte étudiante | Multi-facteur ; établissement assigné |
+### `PUBLIC_AGENT`
 
-## Règles ABAC obligatoires
+Consulte les services disponibles, crée les dossiers autorisés et collecte les paiements. Il ne peut ni modifier les barèmes, ni gérer les autres agents, ni annuler librement une opération finalisée.
 
-Une permission seule ne suffit pas. La décision vérifie au minimum :
+## 5. Rôles externes
 
-1. le statut actif de l’acteur et de sa session ;
-2. le pays et l’environnement autorisés ;
-3. l’organisation, le commerçant, le point de vente ou l’établissement assigné ;
-4. le niveau d’authentification requis ;
-5. les limites de montant et de fréquence ;
-6. le statut KYC, risque ou conformité applicable ;
-7. les horaires, appareils ou réseaux autorisés lorsque configurés ;
-8. l’absence de conflit de séparation des tâches ;
-9. la présence d’une approbation encore valide ;
-10. la finalité déclarée pour l’accès aux données sensibles.
+### `CUSTOMER`
 
-## Actions nécessitant une double validation
+Consulte ses propres comptes et paiements, initie les paiements permis et gère ses dossiers support. Toute tentative d’accès à la ressource d’un autre client doit être refusée.
 
-La double validation est obligatoire en Production pour :
+### `SERVICE_ACCOUNT`
 
-- modification des frais, limites globales ou règles bloquantes ;
-- activation ou désactivation d’un partenaire financier ;
-- ajustement financier ou règlement exceptionnel ;
-- annulation d’une collecte publique après finalisation ;
-- attribution d’un rôle à forte portée, notamment `SUPER_ADMIN` ;
-- export massif de données sensibles ;
-- changement de politique de sécurité critique ;
-- bascule d’une fonctionnalité financière à 100 % des utilisateurs.
+Aucun droit implicite. Chaque compte de service reçoit uniquement des permissions explicites, limitées à une intégration et un environnement précis.
 
-L’auteur d’une demande ne peut jamais l’approuver lui-même.
+## 6. Séparation des responsabilités
 
-## Journalisation obligatoire
+Les combinaisons suivantes exigent au minimum deux acteurs distincts :
 
-Toute décision d’autorisation conserve :
+- initiation et approbation d’un ajustement ledger ;
+- création et activation d’une règle de commission sensible ;
+- modification des limites de production au-dessus d’un seuil défini ;
+- remboursement exceptionnel et approbation de ce remboursement ;
+- activation d’un nouveau partenaire financier en production ;
+- export massif de données sensibles et validation de l’export.
 
-- identifiant de corrélation ;
-- acteur, type d’acteur et rôles actifs ;
-- permission et ressource demandées ;
-- périmètre appliqué ;
-- niveau d’authentification ;
-- décision et code de raison ;
-- politiques évaluées ;
-- obligations imposées ;
-- date, environnement et pays ;
-- approbation associée lorsqu’elle existe.
+Un acteur ne peut jamais être son propre approbateur.
 
-Les refus sur actions sensibles sont audités sans enregistrer de secret, jeton ou donnée de paiement complète.
+## 7. Règles de périmètre
 
-## Critères d’acceptation
+1. Un rôle commerçant est toujours limité à un `merchantId`, et si nécessaire à un `storeId`.
+2. Un rôle public est toujours limité à une `agencyId` et à un pays.
+3. Un administrateur régional est limité à un `countryCode` ou à une organisation.
+4. Un client ne peut agir que sur ses propres ressources, sauf mandat formel géré par un module dédié.
+5. Une permission accordée sans périmètre obligatoire doit être rejetée lors de la création de l’acteur.
 
-- Une route protégée refuse par défaut toute permission inconnue.
-- Un rôle retiré cesse d’accorder ses permissions sans attendre une reconnexion complète.
-- Un acteur ne peut accéder à une ressource hors de son périmètre même s’il possède le nom de permission.
-- Les actions Production critiques exigent le niveau d’authentification et les approbations configurés.
-- Les comptes de service ne peuvent pas être utilisés comme comptes interactifs.
-- Les exports appliquent masquage, filtrage et journalisation.
-- Chaque permission du code est référencée dans un catalogue versionné.
-- Les scénarios `REC-AUTHZ-001` à `REC-AUTHZ-004` de la matrice transverse sont automatisés ou accompagnés d’une preuve de recette.
+## 8. Audit minimum
+
+Chaque décision sensible doit enregistrer : acteur, rôles, permission demandée, périmètre, ressource, environnement, résultat, motif du refus, identifiant de corrélation, date, appareil ou service appelant et approbateur éventuel.
+
+## 9. Critères d’acceptation
+
+- Chaque rôle déclaré dans le code possède une entrée dans la politique de rôles.
+- Aucune permission inconnue ne peut être attribuée.
+- Les permissions de plusieurs rôles sont fusionnées sans doublon.
+- Les contraintes de périmètre restent appliquées après fusion des rôles.
+- `SERVICE_ACCOUNT` ne reçoit aucun droit implicite.
+- Un client ne peut pas lire ou modifier la ressource d’un autre client.
+- Une opération à double validation est refusée sans approbateur distinct.
+- Les changements de politique sont revus conjointement par sécurité, conformité et propriétaire métier.
+
+## 10. Référence technique
+
+La liste canonique des rôles et permissions demeure déclarée dans `packages/security/src/index.ts`. La table `ROLE_PERMISSIONS`, la fonction `permissionsForRoles` et la fonction `roleHasPermission` sont définies dans `packages/security/src/role-policy.ts`.
