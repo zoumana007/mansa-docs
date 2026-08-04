@@ -34,12 +34,28 @@ Le travail suit les dépendances réelles : socle technique, identité et confor
 
 La matrice commune se trouve dans `volume-10-tests-documentation-roadmap/02-matrice-de-recette-transverse.md`. Elle définit les scénarios minimaux et les conditions de passage vers Recette et Production pour l’authentification, les autorisations, le ledger, les paiements, le KYC, les applications, la sécurité, la reprise et l’observabilité.
 
+## Notifications et assistance
+
+Le socle partagé définit désormais les contrats de notification multicanale et de support client. Les règles suivantes s’appliquent à toutes les applications :
+
+- chaque envoi utilise une clé d’idempotence et peut produire plusieurs livraisons, une par canal ;
+- les canaux autorisés sont `IN_APP`, `PUSH`, `SMS`, `EMAIL` et `WHATSAPP` ;
+- les coordonnées exposées dans les journaux et réponses sont masquées ;
+- les statuts, références fournisseur, dates d’envoi et erreurs restent corrélables sans stocker de secret ;
+- une livraison planifiée ne peut être annulée que tant que le fournisseur ne l’a pas rendue irréversible ;
+- les tickets de support sont filtrables par demandeur, agent, catégorie, priorité, statut et période ;
+- les pièces jointes sont référencées par identifiant et doivent être contrôlées par un service de stockage sécurisé ;
+- toute modification administrative d’un ticket ou d’une livraison est auditée ;
+- les messages automatiques ne doivent jamais révéler un code OTP, un numéro de carte complet, un secret ou un document KYC.
+
+Les contrats techniques correspondants sont maintenus dans `packages/contracts/src/notification.ts` et `packages/contracts/src/support.ts` du dépôt plateforme. Ils définissent les routes `/v1/notifications`, `/v1/notifications/deliveries` et `/v1/support/tickets` ainsi que leurs opérations de consultation, annulation, mise à jour et ajout de message.
+
 ## Règles de contenu
 
 Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne doit être ajouté. Les hypothèses juridiques et réglementaires restent à valider avec les banques, opérateurs, autorités et conseils compétents avant toute mise en production.
 
 ## Statut
 
-Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo et une matrice transverse de recette avec niveaux bloquants et majeurs. La documentation doit encore être enrichie avec les matrices de permissions détaillées, catalogues d’API, runbooks spécialisés et décisions complémentaires.
+Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC et les contrats initiaux de notifications et de support. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
 
 Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
