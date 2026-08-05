@@ -48,7 +48,7 @@ Le socle partagé définit désormais les contrats de notification multicanale e
 - toute modification administrative d’un ticket ou d’une livraison est auditée ;
 - les messages automatiques ne doivent jamais révéler un code OTP, un numéro de carte complet, un secret ou un document KYC.
 
-Les contrats techniques correspondants sont maintenus dans `packages/contracts/src/notification.ts` et `packages/contracts/src/support.ts` du dépôt plateforme. Ils définissent les routes `/v1/notifications`, `/v1/notifications/deliveries` et `/v1/support/tickets` ainsi que leurs opérations de consultation, annulation, mise à jour et ajout de message.
+Dans le dépôt plateforme, les modèles métier sont maintenus dans `packages/contracts/src/notification.ts` et `packages/contracts/src/support.ts`. Les routes, méthodes HTTP et contrats de transport sont séparés dans `packages/contracts/src/notification-api.ts` et `packages/contracts/src/support-api.ts`. Ils couvrent notamment les routes `/v1/notifications`, `/v1/notifications/deliveries` et `/v1/support/tickets`, ainsi que les opérations de consultation, annulation, relance, mise à jour et ajout de message.
 
 ## Règles de contenu
 
