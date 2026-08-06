@@ -1,55 +1,63 @@
-# Volume 7 — Jini, risque et gouvernance IA
+# Jini, évaluation du risque et gouvernance de l’IA
 
-## 1. Rôle de Jini
+## Périmètre
 
-Jini est l’assistant intégré à l’écosystème Mansa. Il aide l’utilisateur à comprendre ses opérations, trouver une fonction, préparer une demande de support et recevoir des explications personnalisées. Il ne doit jamais inventer un solde, confirmer une transaction non vérifiée ni exécuter seul une opération financière sensible.
+Le domaine Intelligence couvre l’assistant Jini et l’évaluation du risque transactionnel. Aucun modèle ne constitue seul l’autorité pour une décision financière, réglementaire ou irréversible : le backend, les règles de conformité, les limites et les autorisations restent déterminants.
 
-## 2. Canaux
+## Contrats de référence
 
-Jini peut être exposé dans l’application Client, l’application Commerçant, l’administration et le support. Chaque canal applique un périmètre de données et d’actions différent selon les permissions de l’acteur.
+- `mansa-platform/packages/contracts/src/intelligence.ts`
+- `mansa-platform/packages/contracts/src/intelligence-api.ts`
+- `mansa-platform/packages/contracts/src/ai-governance.ts`
 
-## 3. Données accessibles
+## Jini
 
-L’assistant reçoit uniquement le contexte minimal nécessaire : langue, pays, type de canal, identifiant de session et références explicitement autorisées. Les numéros complets de carte, secrets, codes OTP, mots de passe et documents KYC bruts ne doivent jamais être envoyés au modèle.
+Jini peut assister les clients, commerçants, administrateurs et équipes support. Il peut expliquer une fonction, guider un parcours, résumer des informations déjà autorisées et préparer un ticket de support.
 
-## 4. Actions et confirmation
+Jini ne doit jamais révéler un OTP, un secret, un numéro de carte complet, un CVV ou une donnée KYC inutile. Il ne modifie pas directement un solde, une écriture comptable ou une décision de conformité. Toute action sensible passe par le backend, les contrôles RBAC/ABAC et une confirmation adaptée.
 
-Les actions sont séparées en trois catégories :
+## Évaluation du risque
 
-- lecture sûre : explication, recherche d’aide, statut déjà disponible ;
-- préparation : préremplissage d’un transfert, d’un ticket ou d’un formulaire ;
-- action sensible : paiement, changement de limite, blocage, modification KYC ou décision administrative.
+Une évaluation reçoit au minimum la transaction, l’utilisateur, le montant en unité mineure, la devise, le canal et l’horodatage. Elle peut utiliser des signaux approuvés liés à l’appareil, au terminal, à la localisation et au comportement.
 
-Toute action sensible exige une confirmation explicite dans une interface déterministe, puis les contrôles d’authentification et d’autorisation habituels.
+Le résultat contient un score entier de `0` à `100`, un niveau `LOW`, `MEDIUM`, `HIGH` ou `CRITICAL`, une décision `ALLOW`, `REVIEW`, `CHALLENGE` ou `BLOCK`, les signaux, la version du modèle et la date d’évaluation.
 
-## 5. Escalade humaine
+## Matrice de décision
 
-Jini crée ou enrichit un ticket de support lorsqu’il détecte une demande non résolue, une contestation, un risque de fraude, une situation urgente ou une faible confiance. La conversation remise à l’agent est résumée et les données sensibles sont masquées.
+| Décision | Effet |
+|---|---|
+| `ALLOW` | Continuer vers les contrôles métier suivants. |
+| `REVIEW` | Mettre l’opération en attente pour revue traçable. |
+| `CHALLENGE` | Exiger une authentification ou preuve supplémentaire. |
+| `BLOCK` | Refuser selon une règle explicite et auditer le motif. |
 
-## 6. Évaluation du risque
+La décision de risque ne remplace jamais les contrôles de solde, limite, conformité, autorisation ou idempotence.
 
-Le moteur de risque produit un score, un niveau, une décision et des signaux explicables. Les décisions possibles sont : autoriser, demander une revue, imposer une vérification supplémentaire ou bloquer.
+## Cohérence minimale
 
-Le modèle ne débite ni ne crédite directement un compte. Il fournit une décision à une politique métier versionnée. Les règles déterministes restent disponibles pour les cas réglementaires et les contrôles critiques.
+- score entier entre `0` et `100` ;
+- `LOW` pour `0–29` ;
+- `MEDIUM` pour `30–59` ;
+- `HIGH` pour `60–84` ;
+- `CRITICAL` pour `85–100` ;
+- `ALLOW` interdit avec `CRITICAL` ;
+- `BLOCK` interdit avec `LOW` ;
+- identifiants, version de modèle et horodatage obligatoires ;
+- codes de signaux non vides et scores de signaux entre `0` et `100`.
 
-## 7. Traçabilité
+Ces seuils forment le socle initial. Toute variation par pays, produit ou partenaire est versionnée, approuvée et auditée.
 
-Chaque évaluation conserve : version du modèle, date, signaux utilisés, décision, transaction concernée et identifiant de corrélation. Les données sont conservées selon une politique définie avec conformité et sécurité.
+## Résilience et traçabilité
 
-## 8. Gouvernance
+Chaque appel est corrélé à la transaction et à la session. Les entrées normalisées, sorties, versions, décisions finales et éventuelles dérogations humaines sont auditables conformément à la politique de rétention.
 
-- Jeux de données documentés et contrôlés.
-- Validation avant mise en production.
-- Déploiement progressif par pays ou population.
-- Surveillance des dérives, faux positifs et biais.
-- Possibilité de retour immédiat à une version précédente.
-- Revue humaine pour les décisions contestables.
-- Interdiction d’entraîner un modèle externe avec les données clients sans base légale et accord contractuel.
+En cas d’indisponibilité, chaque type d’opération applique une stratégie déterministe : refus sécurisé, contrôle renforcé ou file de revue. Une réponse tardive ne peut pas modifier une transaction déjà finalisée.
 
-## 9. Sécurité des instructions
+## Critères d’acceptation
 
-Les contenus utilisateur, documents et pages externes sont considérés comme non fiables. Les outils accessibles au modèle utilisent des listes d’autorisation, des schémas stricts et des permissions limitées. Une instruction contenue dans une donnée ne peut pas modifier les règles système.
-
-## 10. Indicateurs
-
-Les indicateurs couvrent : taux de résolution, taux d’escalade, satisfaction, latence, coût par conversation, erreurs factuelles, faux positifs fraude, faux négatifs, décisions annulées et incidents de sécurité.
+1. Les contrats TypeScript compilent en mode strict.
+2. Les décisions et niveaux inconnus sont rejetés.
+3. Une évaluation incohérente est refusée avant utilisation.
+4. La version du modèle figure dans l’audit.
+5. Les seuils `29/30`, `59/60`, `84/85`, `0` et `100` sont testés.
+6. Jini ne peut exécuter une action sensible sans autorisation backend.
