@@ -30,6 +30,25 @@ Ce dépôt contient le cahier des charges, l’architecture, les règles métier
 
 Le travail suit les dépendances réelles : socle technique, identité et conformité, comptes et grand livre, paiements, applications, administration, services publics, données, exploitation puis recette de production.
 
+## Grand livre et intégrité financière
+
+Le grand livre Mansa applique la partie double. Chaque mouvement financier doit produire un journal contenant au moins deux écritures, avec un total des débits strictement égal au total des crédits.
+
+Règles obligatoires :
+
+- les montants sont exprimés en unités mineures entières ;
+- une écriture possède un montant strictement positif et un sens `DEBIT` ou `CREDIT` ;
+- un journal ne contient qu’une seule devise ;
+- chaque journal possède une référence métier et une clé d’idempotence ;
+- un journal publié est immuable ;
+- une correction se fait par journal compensatoire lié au journal d’origine ;
+- les soldes exposés sont des projections vérifiables à partir des écritures ;
+- les comptes techniques de frais, compensation, réserves et suspens restent séparés ;
+- toute divergence de balance bloque le traitement et déclenche une alerte ;
+- les opérations administratives de correction exigent une autorisation forte, une justification et un audit.
+
+Le contrat partagé initial se trouve dans `mansa-platform/packages/contracts/src/transaction.ts`. Il couvre les types de comptes, les écritures, les journaux, les commandes de comptabilisation et d’annulation ainsi que la validation des invariants de base. La persistance, les verrous, les séquences, les projections de solde, la réconciliation et les scénarios de reprise restent à implémenter dans le backend.
+
 ## Référence de recette
 
 La matrice commune se trouve dans `volume-10-tests-documentation-roadmap/02-matrice-de-recette-transverse.md`. Elle définit les scénarios minimaux et les conditions de passage vers Recette et Production pour l’authentification, les autorisations, le ledger, les paiements, le KYC, les applications, la sécurité, la reprise et l’observabilité.
@@ -56,6 +75,6 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 ## Statut
 
-Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC et les contrats initiaux de notifications et de support. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
+Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC, les contrats initiaux de notifications et de support, ainsi que les invariants du grand livre en partie double. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
 
 Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
