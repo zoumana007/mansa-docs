@@ -103,10 +103,35 @@ Les règles de règlement sont configurables par pays, partenaire, type de comme
 
 L’interface doit rester simple pour un petit commerce tout en supportant les besoins d’un réseau multi-sites. Les fonctions non activées par contrat, pays ou conformité ne doivent pas être affichées comme disponibles.
 
-## 10. Critères d’acceptation
+## 10. Fidélité et récompenses
+
+Chaque commerçant peut activer un programme de fidélité distinct. Le programme définit le nom des points, le taux d’acquisition, le seuil minimal de dépense, la durée de validité et les récompenses disponibles.
+
+Règles obligatoires :
+
+- un compte de fidélité est unique par client et programme ;
+- les points sont des entiers et ne constituent pas une monnaie électronique ;
+- chaque acquisition, utilisation, ajustement, expiration ou annulation produit une écriture immuable ;
+- toute commande d’acquisition ou d’utilisation possède une clé d’idempotence et une référence métier ;
+- un solde ne peut jamais devenir négatif ;
+- une annulation crée une écriture inverse liée à l’écriture d’origine ;
+- un ajustement manuel exige un code motif, une justification, une permission dédiée et un audit ;
+- les points expirés ne peuvent pas être réactivés sans opération administrative explicite ;
+- la disponibilité d’une récompense tient compte de son statut, de sa période, de son stock éventuel et du nombre maximal d’utilisations ;
+- les conditions visibles par le client doivent correspondre à la configuration réellement appliquée.
+
+Les statuts du programme sont `DRAFT`, `ACTIVE`, `PAUSED` et `ARCHIVED`. Les comptes clients sont `ACTIVE`, `SUSPENDED` ou `CLOSED`. Les mouvements sont `EARN`, `REDEEM`, `ADJUST`, `EXPIRE` ou `REVERSE`.
+
+Le socle de contrats correspondant est défini dans `mansa-platform/packages/contracts/src/merchant.ts` avec les modèles `LoyaltyProgram`, `LoyaltyAccount`, `LoyaltyTransaction`, `LoyaltyReward` et les commandes d’acquisition, d’utilisation et d’ajustement.
+
+## 11. Critères d’acceptation
 
 - Un propriétaire peut créer un établissement et inviter un caissier sans intervention technique.
 - Un caissier ne peut ni modifier le compte de règlement ni consulter les données d’autres établissements sans permission.
 - Chaque encaissement possède une référence unique et un état explicite.
 - Les remboursements sont traçables et liés à l’opération d’origine.
 - Les totaux du tableau de bord sont réconciliables avec les exports transactionnels.
+- Deux demandes identiques d’acquisition de points avec la même clé d’idempotence ne créditent qu’une seule fois le compte.
+- Une utilisation de récompense est refusée lorsque le solde est insuffisant ou que la récompense est inactive, expirée ou épuisée.
+- Une annulation de mouvement conserve l’historique complet et produit une écriture inverse.
+- Un ajustement manuel sans motif, justification ou permission est refusé et audité.
