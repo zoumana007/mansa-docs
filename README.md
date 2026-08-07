@@ -47,7 +47,9 @@ Règles obligatoires :
 - toute divergence de balance bloque le traitement et déclenche une alerte ;
 - les opérations administratives de correction exigent une autorisation forte, une justification et un audit.
 
-Le contrat partagé initial se trouve dans `mansa-platform/packages/contracts/src/transaction.ts`. Il couvre les types de comptes, les écritures, les journaux, les commandes de comptabilisation et d’annulation ainsi que la validation des invariants de base. La persistance, les verrous, les séquences, les projections de solde, la réconciliation et les scénarios de reprise restent à implémenter dans le backend.
+Le contrat partagé de référence se trouve dans `mansa-platform/packages/contracts/src/ledger.ts`. Il couvre les comptes, les écritures, les transactions comptables, les commandes de publication et de compensation ainsi que la validation structurée des invariants. Le contrat de transport interne se trouve dans `mansa-platform/packages/contracts/src/ledger-api.ts` et définit les routes de publication, lecture, compensation, comptes, soldes et écritures. La spécification d’intégration correspondante est maintenue dans `volume-01-socle-technique/10-contrat-api-ledger.md`.
+
+La persistance PostgreSQL, les verrous, les séquences, les projections de solde, l’outbox transactionnelle, la réconciliation et les scénarios de reprise restent à implémenter dans le backend.
 
 ## Référence de recette
 
@@ -75,6 +77,6 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 ## Statut
 
-Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC, les contrats initiaux de notifications et de support, ainsi que les invariants du grand livre en partie double. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
+Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC, les contrats initiaux de notifications et de support, les invariants du grand livre en partie double et son contrat API interne. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
 
 Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
