@@ -95,7 +95,21 @@ Les webhooks sont signés, horodatés, rejouables et idempotents. Chaque livrais
 
 Les adaptateurs partenaires traduisent les formats externes vers les contrats internes. Un SDK ou format fournisseur ne doit pas se propager dans le domaine.
 
-## 11. Critères de recette
+## 11. Publication des contrats techniques
+
+Un contrat API stable n'est considéré comme réellement disponible pour les consommateurs que lorsque sa publication est cohérente dans le package partagé.
+
+Pour chaque fichier `packages/contracts/src/*-api.ts` destiné à être consommé :
+
+1. le contrat doit être exporté par `packages/contracts/src/api-contracts.ts` ;
+2. un sous-chemin correspondant doit être déclaré dans `packages/contracts/package.json` lorsqu'un import direct est prévu ;
+3. les deux points d'entrée doivent désigner le même fichier compilé ;
+4. l'ajout d'un contrat ne doit pas laisser un export orphelin ou un sous-chemin absent ;
+5. la documentation fonctionnelle du domaine doit référencer le contrat lorsqu'il devient une interface officielle.
+
+Une divergence entre l'agrégat `api-contracts.ts` et la table `exports` est un défaut bloquant pour la recette, car deux applications pourraient alors voir des surfaces API différentes selon leur mode d'import.
+
+## 12. Critères de recette
 
 Un contrat est prêt lorsque :
 
@@ -106,9 +120,10 @@ Un contrat est prêt lorsque :
 - les règles d'idempotence sont testées ;
 - les exemples ne contiennent aucune donnée réelle ;
 - le point d'entrée du package exporte le contrat ;
+- l'agrégat `api-contracts.ts` et les sous-chemins publiés sont cohérents ;
 - le typecheck et les tests du package réussissent ;
 - la documentation et le code ne présentent aucun écart connu.
 
-## 12. Référence technique
+## 13. Référence technique
 
 Le catalogue technique et les conventions d'import sont décrits dans `mansa-platform/docs/contracts-catalog.md`.
