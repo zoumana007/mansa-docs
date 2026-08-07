@@ -36,6 +36,8 @@ Les attributs complémentaires doivent être limités aux informations utiles au
 
 Sont notamment interdits dans les journaux : mots de passe, secrets, jetons, codes OTP, PIN, CVV/CVC, numéro de carte complet et clé privée.
 
+Le masquage doit s’appliquer récursivement aux objets et tableaux imbriqués. Une référence circulaire rencontrée dans les attributs techniques doit être neutralisée avant sérialisation afin d’éviter une fuite ou un échec de journalisation. La fonction commune `sanitizeStructuredLogEvent` constitue le point de passage recommandé avant émission d’un événement vers un fournisseur de logs.
+
 ## 4. Santé des services
 
 Les états partagés sont :
@@ -82,18 +84,23 @@ Le dépôt plateforme contient désormais :
 
 - `packages/observability/package.json` ;
 - `packages/observability/tsconfig.json` ;
-- `packages/observability/src/index.ts`.
+- `packages/observability/src/index.ts` ;
+- `packages/observability/test/observability.test.mjs`.
 
-Le module fournit les types de corrélation, journaux, santé, dépendances, incidents et métriques ainsi que des fonctions communes de validation, classification de santé et masquage des attributs sensibles.
+Le module fournit les types de corrélation, journaux, santé, dépendances, incidents et métriques ainsi que des fonctions communes de validation, classification de santé, masquage récursif des attributs sensibles et préparation d’un événement de journal assaini.
+
+La suite de tests construit le package puis vérifie le masquage des secrets imbriqués, la neutralisation des références circulaires, la validation des événements structurés et la classification déterministe de l’état de santé.
 
 ## 9. Critères d’acceptation
 
 - Le package compile en TypeScript strict.
 - Tous les services peuvent importer les primitives sans dépendre d’un fournisseur d’observabilité particulier.
 - Les niveaux d’incident restent identiques entre documentation et code.
-- Une clé sensible reconnue est remplacée par `[REDACTED]` avant journalisation.
+- Une clé sensible reconnue est remplacée par `[REDACTED]` avant journalisation, y compris lorsqu’elle est imbriquée dans un objet ou un tableau.
+- Une structure circulaire est neutralisée et ne provoque pas de récursion infinie pendant le masquage.
 - Un événement sans `correlationId` valide est rejeté par la validation commune.
 - La classification de santé produit `HEALTHY`, `DEGRADED` ou `UNHEALTHY` de manière déterministe.
+- Les tests du package sont exécutés via le script `test` après compilation TypeScript.
 - Aucun secret ou identifiant de production n’est présent dans le dépôt.
 
 ## 10. Étapes suivantes
