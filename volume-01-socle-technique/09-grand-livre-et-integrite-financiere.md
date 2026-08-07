@@ -42,7 +42,7 @@ La fonction booléenne `isLedgerBalanced` reste disponible pour les contrôles s
 
 ### 3.1 Validation des commandes de publication
 
-La fonction `validatePostLedgerTransactionCommand` valide désormais l’enveloppe métier avant toute persistance. Elle compose la validation financière des écritures avec les contrôles suivants :
+La fonction `validatePostLedgerTransactionCommand` valide l’enveloppe métier avant toute persistance. Elle compose la validation financière des écritures avec les contrôles suivants :
 
 - référence métier non vide ;
 - type de transaction non vide ;
@@ -62,7 +62,25 @@ Les erreurs de commande utilisent des codes séparés et stables :
 - `INVALID_OCCURRED_AT` ;
 - `INVALID_ENTRIES`.
 
-Cette validation est volontairement sans accès réseau ni base de données. Les contrôles d’unicité réelle de la clé d’idempotence, d’existence des comptes et d’autorisation restent à la charge du service backend transactionnel.
+### 3.2 Validation des commandes d’annulation
+
+La fonction `validateReverseLedgerTransactionCommand` valide désormais une demande de compensation avant que le backend ne recherche ou verrouille la transaction d’origine. Elle exige :
+
+- un identifiant de transaction d’origine non vide ;
+- un code motif non vide ;
+- un motif explicite non vide ;
+- une clé d’idempotence d’au moins huit caractères ;
+- un identifiant de corrélation non vide.
+
+Les erreurs d’annulation disposent de leur propre catalogue :
+
+- `INVALID_TRANSACTION_ID` ;
+- `INVALID_REASON_CODE` ;
+- `INVALID_REASON` ;
+- `INVALID_IDEMPOTENCY_KEY` ;
+- `INVALID_CORRELATION_ID`.
+
+Cette validation reste volontairement pure et sans accès réseau ni base de données. Le service transactionnel doit encore vérifier que la transaction existe, qu’elle est `POSTED`, qu’elle n’a pas déjà été compensée, que l’appelant est autorisé et que la clé d’idempotence n’est pas réutilisée avec un contenu différent.
 
 ## 4. Cycle de vie
 
@@ -81,6 +99,8 @@ Le passage à `POSTED` doit être atomique avec :
 - la publication de l’événement transactionnel dans une outbox ;
 - l’enregistrement de l’audit technique.
 
+Une annulation ne modifie ni ne supprime les écritures d’origine. Elle génère une nouvelle transaction de compensation qui inverse les débits et crédits, conserve la devise et relie explicitement les deux transactions.
+
 ## 5. Idempotence et concurrence
 
 La combinaison du domaine métier, de la clé d’idempotence et du propriétaire logique doit être protégée par une contrainte unique en base.
@@ -95,6 +115,8 @@ Le traitement doit :
 6. valider la partie double ;
 7. publier les écritures et l’outbox ;
 8. valider la transaction SQL.
+
+Pour une annulation, le verrouillage doit aussi empêcher deux compensations concurrentes de la même transaction d’origine.
 
 ## 6. Soldes et projections
 
@@ -132,8 +154,10 @@ Les tests runtime du package contrats couvrent désormais :
 - plusieurs devises ;
 - débits et crédits différents ;
 - commande de publication complète ;
-- champs obligatoires de commande invalides ;
-- propagation d’une erreur financière vers la validation de commande.
+- champs obligatoires de commande de publication invalides ;
+- propagation d’une erreur financière vers la validation de commande ;
+- commande d’annulation complète ;
+- champs obligatoires de commande d’annulation invalides.
 
 Les tests backend et d’intégration devront encore couvrir :
 
@@ -141,13 +165,15 @@ Les tests backend et d’intégration devront encore couvrir :
 - collision idempotente avec contenu différent ;
 - concurrence sur le même compte ;
 - annulation par compensation ;
+- double demande d’annulation concurrente ;
+- tentative d’annulation d’une transaction inexistante, rejetée ou déjà compensée ;
 - reconstruction des soldes ;
 - panne entre écriture SQL et publication d’événement ;
 - reprise après incident.
 
 ## 9. Éléments restant à construire
 
-Le contrat partagé et sa validation runtime sont disponibles, mais la production nécessite encore :
+Le contrat partagé et ses validations runtime de publication et d’annulation sont disponibles, mais la production nécessite encore :
 
 - la persistance PostgreSQL ;
 - les contraintes uniques et verrous ;
