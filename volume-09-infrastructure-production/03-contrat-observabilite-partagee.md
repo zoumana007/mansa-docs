@@ -2,7 +2,7 @@
 
 ## 1. Objectif
 
-Le package `mansa-platform/packages/observability` fournit les primitives communes que les applications, services backend et workers utilisent pour produire des journaux structurés, propager la corrélation, exposer leur état de santé et qualifier les incidents.
+Le package `mansa-platform/packages/observability` fournit les primitives communes que les applications, services backend et workers utilisent pour produire des journaux structurés, propager la corrélation, exposer leur état de santé, qualifier les incidents et transporter un contexte de traçage distribué.
 
 Ce package ne remplace ni le journal d’audit métier ni le grand livre financier. Il fournit uniquement les conventions techniques communes nécessaires à l’exploitation.
 
@@ -82,7 +82,30 @@ Les identifiants de corrélation appartiennent aux journaux et traces, pas aux l
 
 Les données KYC, numéros de téléphone complets, adresses e-mail complètes et données de carte ne doivent pas être introduits dans les métriques.
 
-## 8. Implémentation de référence
+## 8. Traçage distribué
+
+Le socle expose désormais un contrat de trace indépendant du fournisseur d’observabilité.
+
+Les types partagés sont :
+
+- `TraceContext` pour le contexte transporté entre services ;
+- `SpanRecord` pour la représentation commune d’un segment de trace ;
+- `SpanKind` avec `INTERNAL`, `SERVER`, `CLIENT`, `PRODUCER`, `CONSUMER` ;
+- `SpanStatus` avec `UNSET`, `OK`, `ERROR`.
+
+Les identifiants suivent le format W3C Trace Context :
+
+- `traceId` : 32 caractères hexadécimaux et différent de zéro ;
+- `spanId` : 16 caractères hexadécimaux et différent de zéro ;
+- `traceFlags` : deux caractères hexadécimaux lorsqu’il est présent.
+
+Le package fournit `buildTraceParent` et `parseTraceParent` pour sérialiser et relire la version `00` de l’en-tête `traceparent`. Une valeur invalide n’est jamais propagée silencieusement : la construction échoue explicitement et l’analyse retourne `undefined`.
+
+Un `SpanRecord` doit contenir un nom, un service, un type de span, un état, un instant de début et un contexte de trace valides. La date de fin, lorsqu’elle existe, ne peut pas précéder la date de début. Un `parentSpanId` optionnel doit lui aussi respecter le format d’un identifiant de span.
+
+Les spans ne doivent contenir dans leurs attributs que des valeurs simples utiles au diagnostic. Les secrets, données KYC, numéros de carte complets, PIN, OTP, jetons et mots de passe sont interdits. Les identifiants métier détaillés doivent être conservés dans les journaux ou systèmes métier appropriés lorsque cela est nécessaire, et non utilisés pour augmenter la cardinalité des métriques.
+
+## 9. Implémentation de référence
 
 Le dépôt plateforme contient désormais :
 
@@ -91,11 +114,11 @@ Le dépôt plateforme contient désormais :
 - `packages/observability/src/index.ts` ;
 - `packages/observability/test/observability.test.mjs`.
 
-Le module fournit les types de corrélation, journaux, santé, dépendances, incidents et métriques ainsi que des fonctions communes de validation, classification de santé, masquage récursif des attributs sensibles, préparation d’un événement de journal assaini et validation des définitions de métriques.
+Le module fournit les types de corrélation, journaux, santé, dépendances, incidents, métriques et traces ainsi que des fonctions communes de validation, classification de santé, masquage récursif des attributs sensibles, préparation d’un événement de journal assaini, validation des définitions de métriques et sérialisation/analyse du `traceparent`.
 
-La suite de tests construit le package puis vérifie le masquage des secrets imbriqués, la neutralisation des références circulaires, la validation des événements structurés, la classification déterministe de l’état de santé et le refus des labels de métriques à cardinalité non bornée ou dupliqués après normalisation.
+La suite de tests construit le package puis vérifie le masquage des secrets imbriqués, la neutralisation des références circulaires, la validation des événements structurés, la classification déterministe de l’état de santé, le refus des labels de métriques à cardinalité non bornée ou dupliqués après normalisation, la validation des identifiants de trace, la propagation `traceparent` et la chronologie des spans.
 
-## 9. Critères d’acceptation
+## 10. Critères d’acceptation
 
 - Le package compile en TypeScript strict.
 - Tous les services peuvent importer les primitives sans dépendre d’un fournisseur d’observabilité particulier.
@@ -106,9 +129,12 @@ La suite de tests construit le package puis vérifie le masquage des secrets imb
 - La classification de santé produit `HEALTHY`, `DEGRADED` ou `UNHEALTHY` de manière déterministe.
 - Une définition de métrique contenant un identifiant à cardinalité non bornée est rejetée par la validation commune.
 - Deux labels équivalents après normalisation, par exemple `countryCode` et `country_code`, sont rejetés comme doublons.
+- Un `traceId` ou `spanId` nul ou mal formé est rejeté.
+- Un `traceparent` valide peut être construit puis relu sans perte de contexte.
+- Un span dont la date de fin précède la date de début est rejeté.
 - Les tests du package sont exécutés via le script `test` après compilation TypeScript.
 - Aucun secret ou identifiant de production n’est présent dans le dépôt.
 
-## 10. Étapes suivantes
+## 11. Étapes suivantes
 
-Les prochaines couches doivent brancher ces primitives sur les implémentations réelles de logs, métriques et traces, puis définir les tableaux de bord, alertes et runbooks de chaque parcours critique. Le choix du fournisseur d’observabilité reste un détail d’infrastructure et ne doit pas contaminer les contrats métier partagés.
+Les prochaines couches doivent brancher ces primitives sur les implémentations réelles de logs, métriques et traces, puis définir les objectifs de service, tableaux de bord, alertes et runbooks de chaque parcours critique. Le choix du fournisseur d’observabilité reste un détail d’infrastructure et ne doit pas contaminer les contrats métier partagés.
