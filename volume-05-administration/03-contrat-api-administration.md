@@ -58,6 +58,6 @@ Chaque création, modification ou décision enregistre au minimum : acteur, rôl
 6. Une modification Production ne peut pas être appliquée au périmètre Démo ou Recette par erreur.
 7. Les tests couvrent les transitions valides et invalides des demandes d’approbation.
 
-## Travail suivant
+## État d’implémentation
 
-Le contrat doit être exporté par le barrel `packages/contracts/src/index.ts`, puis implémenté dans le module d’administration de l’API Gateway avec validation d’entrée, moteur d’autorisation, persistance, audit et tests d’intégration.
+Le contrat est défini dans `packages/contracts/src/administration-api.ts`, réexporté par le catalogue `packages/contracts/src/api-contracts.ts` et publié via le sous-chemin `@mansa/contracts/administration-api`. L’export depuis le barrel racine `packages/contracts/src/index.ts`, puis l’implémentation dans le module d’administration de l’API Gateway avec validation d’entrée, moteur d’autorisation, persistance, audit et tests d’intégration restent à réaliser.
