@@ -70,9 +70,13 @@ Les unités communes du socle sont :
 
 Pour `AMOUNT_MINOR`, la devise doit être portée par un label autorisé ou par le contexte métier correspondant. Aucun montant financier ne doit être converti en flottant pour la télémétrie métier.
 
+Le package expose `isAllowedMetricLabel` et `isValidMetricDefinition` afin que les modules puissent vérifier une définition avant de l’enregistrer auprès d’un fournisseur de métriques. La validation exige un nom et une description non vides, une unité connue, des labels non vides et non dupliqués après normalisation, ainsi que l’absence de labels interdits à cardinalité non bornée.
+
 ## 7. Cardinalité et données sensibles
 
 Les métriques ne doivent pas utiliser comme labels des identifiants à cardinalité non bornée tels que `userId`, `transactionId`, `requestId` ou `correlationId`.
+
+Le socle bloque également comme labels partagés `sessionId`, `traceId`, `spanId`, numéro de téléphone, adresse e-mail et numéro de carte complet. Les variantes de casse et de séparateurs sont normalisées avant contrôle afin qu’un libellé comme `transaction_id` ne contourne pas la règle.
 
 Les identifiants de corrélation appartiennent aux journaux et traces, pas aux labels de métriques.
 
@@ -87,9 +91,9 @@ Le dépôt plateforme contient désormais :
 - `packages/observability/src/index.ts` ;
 - `packages/observability/test/observability.test.mjs`.
 
-Le module fournit les types de corrélation, journaux, santé, dépendances, incidents et métriques ainsi que des fonctions communes de validation, classification de santé, masquage récursif des attributs sensibles et préparation d’un événement de journal assaini.
+Le module fournit les types de corrélation, journaux, santé, dépendances, incidents et métriques ainsi que des fonctions communes de validation, classification de santé, masquage récursif des attributs sensibles, préparation d’un événement de journal assaini et validation des définitions de métriques.
 
-La suite de tests construit le package puis vérifie le masquage des secrets imbriqués, la neutralisation des références circulaires, la validation des événements structurés et la classification déterministe de l’état de santé.
+La suite de tests construit le package puis vérifie le masquage des secrets imbriqués, la neutralisation des références circulaires, la validation des événements structurés, la classification déterministe de l’état de santé et le refus des labels de métriques à cardinalité non bornée ou dupliqués après normalisation.
 
 ## 9. Critères d’acceptation
 
@@ -100,6 +104,8 @@ La suite de tests construit le package puis vérifie le masquage des secrets imb
 - Une structure circulaire est neutralisée et ne provoque pas de récursion infinie pendant le masquage.
 - Un événement sans `correlationId` valide est rejeté par la validation commune.
 - La classification de santé produit `HEALTHY`, `DEGRADED` ou `UNHEALTHY` de manière déterministe.
+- Une définition de métrique contenant un identifiant à cardinalité non bornée est rejetée par la validation commune.
+- Deux labels équivalents après normalisation, par exemple `countryCode` et `country_code`, sont rejetés comme doublons.
 - Les tests du package sont exécutés via le script `test` après compilation TypeScript.
 - Aucun secret ou identifiant de production n’est présent dans le dépôt.
 
