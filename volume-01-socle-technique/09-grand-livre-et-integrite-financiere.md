@@ -31,7 +31,7 @@ La fonction `validateLedgerEntries` retourne :
 - une liste d’erreurs structurées avec un code stable ;
 - l’index et le compte concernés lorsque l’erreur porte sur une écriture précise.
 
-Codes initiaux :
+Codes initiaux des écritures :
 
 - `INSUFFICIENT_ENTRIES` ;
 - `NON_POSITIVE_AMOUNT` ;
@@ -39,6 +39,30 @@ Codes initiaux :
 - `UNBALANCED_TOTALS`.
 
 La fonction booléenne `isLedgerBalanced` reste disponible pour les contrôles simples, mais les modules backend doivent privilégier `validateLedgerEntries` afin de journaliser une cause précise sans exposer de donnée sensible.
+
+### 3.1 Validation des commandes de publication
+
+La fonction `validatePostLedgerTransactionCommand` valide désormais l’enveloppe métier avant toute persistance. Elle compose la validation financière des écritures avec les contrôles suivants :
+
+- référence métier non vide ;
+- type de transaction non vide ;
+- clé d’idempotence d’au moins huit caractères ;
+- identifiant de corrélation non vide ;
+- code pays ISO 3166-1 alpha-2 en majuscules ;
+- horodatage `occurredAt` interprétable comme date-heure ;
+- écritures respectant tous les invariants de partie double.
+
+Les erreurs de commande utilisent des codes séparés et stables :
+
+- `INVALID_REFERENCE` ;
+- `INVALID_TRANSACTION_TYPE` ;
+- `INVALID_IDEMPOTENCY_KEY` ;
+- `INVALID_CORRELATION_ID` ;
+- `INVALID_COUNTRY_CODE` ;
+- `INVALID_OCCURRED_AT` ;
+- `INVALID_ENTRIES`.
+
+Cette validation est volontairement sans accès réseau ni base de données. Les contrôles d’unicité réelle de la clé d’idempotence, d’existence des comptes et d’autorisation restent à la charge du service backend transactionnel.
 
 ## 4. Cycle de vie
 
@@ -100,13 +124,19 @@ Chaque écart possède un statut, une cause, un propriétaire, une échéance et
 
 ## 8. Tests minimaux
 
-Les tests unitaires et d’intégration doivent couvrir :
+Les tests runtime du package contrats couvrent désormais :
 
 - journal équilibré ;
 - moins de deux écritures ;
 - montant nul ou négatif ;
 - plusieurs devises ;
 - débits et crédits différents ;
+- commande de publication complète ;
+- champs obligatoires de commande invalides ;
+- propagation d’une erreur financière vers la validation de commande.
+
+Les tests backend et d’intégration devront encore couvrir :
+
 - répétition idempotente identique ;
 - collision idempotente avec contenu différent ;
 - concurrence sur le même compte ;
@@ -117,7 +147,7 @@ Les tests unitaires et d’intégration doivent couvrir :
 
 ## 9. Éléments restant à construire
 
-Le contrat partagé est disponible, mais la production nécessite encore :
+Le contrat partagé et sa validation runtime sont disponibles, mais la production nécessite encore :
 
 - la persistance PostgreSQL ;
 - les contraintes uniques et verrous ;
