@@ -23,6 +23,30 @@ Les montants sont toujours stockés en unités mineures entières. Aucun nombre 
 
 Le contrat `packages/contracts/src/ledger.ts` expose une validation déterministe commune aux applications et au backend.
 
+### 3.1 Validation des comptes comptables
+
+La fonction `validateLedgerAccount` valide désormais la structure minimale d’un compte avant persistance. Elle contrôle :
+
+- un identifiant de compte non vide ;
+- un code comptable de 3 à 64 caractères, limité aux majuscules, chiffres et séparateurs `:`, `_`, `-` ;
+- la présence d’un `ownerId` pour tout compte qui n’appartient pas directement à la plateforme ;
+- un code pays ISO 3166-1 alpha-2 en majuscules ;
+- un nom de compte non vide ;
+- un horodatage `createdAt` interprétable comme date-heure.
+
+Les erreurs utilisent les codes stables suivants :
+
+- `INVALID_ACCOUNT_ID` ;
+- `INVALID_ACCOUNT_CODE` ;
+- `MISSING_OWNER_ID` ;
+- `INVALID_COUNTRY_CODE` ;
+- `INVALID_ACCOUNT_NAME` ;
+- `INVALID_CREATED_AT`.
+
+Un compte `PLATFORM` peut volontairement ne pas avoir de `ownerId`, alors qu’un compte `USER`, `MERCHANT`, `PARTNER` ou `PUBLIC_BODY` doit toujours référencer son propriétaire logique.
+
+### 3.2 Validation des écritures
+
 La fonction `validateLedgerEntries` retourne :
 
 - l’état global `valid` ;
@@ -40,7 +64,7 @@ Codes initiaux des écritures :
 
 La fonction booléenne `isLedgerBalanced` reste disponible pour les contrôles simples, mais les modules backend doivent privilégier `validateLedgerEntries` afin de journaliser une cause précise sans exposer de donnée sensible.
 
-### 3.1 Validation des commandes de publication
+### 3.3 Validation des commandes de publication
 
 La fonction `validatePostLedgerTransactionCommand` valide l’enveloppe métier avant toute persistance. Elle compose la validation financière des écritures avec les contrôles suivants :
 
@@ -62,9 +86,9 @@ Les erreurs de commande utilisent des codes séparés et stables :
 - `INVALID_OCCURRED_AT` ;
 - `INVALID_ENTRIES`.
 
-### 3.2 Validation des commandes d’annulation
+### 3.4 Validation des commandes d’annulation
 
-La fonction `validateReverseLedgerTransactionCommand` valide désormais une demande de compensation avant que le backend ne recherche ou verrouille la transaction d’origine. Elle exige :
+La fonction `validateReverseLedgerTransactionCommand` valide une demande de compensation avant que le backend ne recherche ou verrouille la transaction d’origine. Elle exige :
 
 - un identifiant de transaction d’origine non vide ;
 - un code motif non vide ;
@@ -148,6 +172,9 @@ Chaque écart possède un statut, une cause, un propriétaire, une échéance et
 
 Les tests runtime du package contrats couvrent désormais :
 
+- compte comptable valide ;
+- champs invalides d’un compte comptable ;
+- compte plateforme sans propriétaire logique ;
 - journal équilibré ;
 - moins de deux écritures ;
 - montant nul ou négatif ;
@@ -161,6 +188,9 @@ Les tests runtime du package contrats couvrent désormais :
 
 Les tests backend et d’intégration devront encore couvrir :
 
+- unicité réelle des codes de comptes ;
+- existence et statut du propriétaire logique ;
+- cohérence entre pays, devise et configuration du produit ;
 - répétition idempotente identique ;
 - collision idempotente avec contenu différent ;
 - concurrence sur le même compte ;
@@ -173,7 +203,7 @@ Les tests backend et d’intégration devront encore couvrir :
 
 ## 9. Éléments restant à construire
 
-Le contrat partagé et ses validations runtime de publication et d’annulation sont disponibles, mais la production nécessite encore :
+Le contrat partagé et ses validations runtime des comptes, publications et annulations sont disponibles, mais la production nécessite encore :
 
 - la persistance PostgreSQL ;
 - les contraintes uniques et verrous ;
