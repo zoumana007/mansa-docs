@@ -9,6 +9,8 @@ Le contrat TypeScript de référence se trouve dans :
 - `mansa-platform/packages/contracts/src/ledger.ts` pour les modèles et invariants ;
 - `mansa-platform/packages/contracts/src/ledger-api.ts` pour les routes et méthodes internes.
 
+La stratégie de persistance PostgreSQL correspondante est détaillée dans `11-persistance-ledger-postgresql.md`.
+
 ## 2. Routes de référence
 
 | Opération | Méthode | Route |
@@ -50,7 +52,7 @@ Une même clé d’idempotence utilisée avec une requête strictement identique
 
 Une même clé réutilisée avec un contenu différent doit être rejetée avec une erreur de conflit explicite et auditée.
 
-La protection doit être imposée en base de données par une contrainte unique dans le périmètre métier approprié, et pas uniquement par un contrôle applicatif.
+La protection doit être imposée en base de données par une contrainte unique dans le périmètre métier approprié, et pas uniquement par un contrôle applicatif. Le schéma persiste également une empreinte déterministe `requestFingerprint` afin de distinguer une répétition exacte d’une collision de clé.
 
 ## 5. Compensation
 
@@ -69,6 +71,8 @@ Les opérations de compensation manuelle ou administrative doivent appliquer les
 
 La lecture des écritures d’un compte accepte des bornes temporelles, un curseur et une limite. La pagination doit être stable : le curseur doit s’appuyer sur un ordre déterministe, idéalement une séquence comptable monotone plus l’identifiant de l’écriture.
 
+Le schéma PostgreSQL maintient un index `(accountId, postedAt, id)` compatible avec une pagination keyset stable des écritures.
+
 Les réponses ne doivent jamais contenir de secret, de PAN complet, de code OTP, de document KYC ou de donnée fournisseur non nécessaire.
 
 ## 7. Soldes
@@ -79,7 +83,7 @@ Le solde exposé par l’API est une projection du grand livre, pas une seconde 
 - `pending` ;
 - `asOf`.
 
-L’implémentation backend doit également conserver une séquence ou position de projection afin de permettre la vérification et la reconstruction après incident.
+La persistance conserve en plus une position de projection via `projectionSequence`, `lastEntryPostedAt` et `lastEntryId`, afin de permettre la vérification et la reconstruction après incident.
 
 ## 8. Atomicité backend attendue
 
@@ -129,4 +133,8 @@ Le lot ledger n’est considéré terminé pour une mise en recette que si :
 
 ## 11. État actuel
 
-Les modèles, invariants et routes de transport sont déjà définis dans `packages/contracts/src/ledger.ts` et `packages/contracts/src/ledger-api.ts`. La persistance PostgreSQL, le module NestJS, les projections, l’outbox, la réconciliation et les tests d’intégration restent des éléments de construction du backend avant production.
+Les modèles, invariants et routes de transport sont définis dans `packages/contracts/src/ledger.ts` et `packages/contracts/src/ledger-api.ts`.
+
+Le schéma Prisma couvre désormais les principales structures de persistance : comptes enrichis, transactions avec idempotence et corrélation, compensation, séquence des écritures, projection de solde et outbox transactionnelle. La conception détaillée est documentée dans `11-persistance-ledger-postgresql.md`.
+
+Restent à implémenter avant production : la migration Prisma générée et testée, le module NestJS, les repositories, les transactions PostgreSQL atomiques, le worker outbox, la réconciliation, les métriques et les tests d’intégration/concurrence.
