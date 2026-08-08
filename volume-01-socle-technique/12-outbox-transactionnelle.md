@@ -26,7 +26,7 @@ Aucun secret, jeton d’accès, PAN complet, donnée KYC ou donnée fournisseur 
 
 ## 3. Prise en charge concurrente
 
-Le service `LedgerOutboxService` du dépôt plateforme fournit une première mécanique de réclamation concurrente.
+Le service `LedgerOutboxService` du dépôt plateforme fournit la mécanique de réclamation concurrente.
 
 La méthode `claimBatch` :
 
@@ -40,9 +40,23 @@ La méthode `claimBatch` :
 
 Cette stratégie empêche deux workers ayant lu le même candidat de l’acquérir simultanément dans le cas nominal. Le champ `availableAt` sert aussi de bail temporaire : un worker mort ou interrompu n’immobilise pas définitivement l’événement.
 
-## 4. Publication réussie
+## 4. Orchestration de livraison
 
-Après confirmation du broker ou du transport cible, le worker appelle `markPublished`.
+`LedgerOutboxDispatcherService` orchestre désormais un lot réclamé sans imposer de broker particulier.
+
+Il reçoit un adaptateur conforme au contrat `LedgerOutboxPublisher`, publie chaque événement puis :
+
+- appelle `markPublished` uniquement après confirmation de l’adaptateur ;
+- appelle `markFailed` si la publication lève une erreur ;
+- calcule un délai de retry exponentiel borné ;
+- applique un jitter configurable pour éviter que plusieurs workers se resynchronisent après une panne ;
+- retourne un bilan `{ claimed, published, failed }` exploitable par le futur worker et l’observabilité.
+
+Le dispatcher reste volontairement indépendant de Kafka, RabbitMQ, NATS ou d’un service cloud. Le choix de transport sera fourni par un adaptateur dédié.
+
+## 5. Publication réussie
+
+Après confirmation du broker ou du transport cible, le dispatcher appelle `markPublished`.
 
 L’opération :
 
@@ -54,7 +68,7 @@ L’opération :
 
 Un événement `PUBLISHED` ne doit pas être remis en file par un simple retry technique.
 
-## 5. Échec et retry
+## 6. Échec, backoff et retry
 
 Lorsqu’une publication échoue, `markFailed` :
 
@@ -63,15 +77,15 @@ Lorsqu’une publication échoue, `markFailed` :
 - conserve le nombre de tentatives déjà incrémenté lors du claim ;
 - enregistre une erreur technique limitée en taille.
 
-Le futur worker de transport devra appliquer un backoff croissant avec jitter et une limite globale de tentatives. Une fois cette limite atteinte, l’événement reste visible pour les opérations de support, d’alerte et de reprise manuelle contrôlée.
+Le dispatcher fournit désormais un backoff exponentiel borné avec jitter configurable. La limite de tentatives reste portée par `claimBatch`. Une fois cette limite atteinte, l’événement reste visible pour les opérations de support, d’alerte et de reprise manuelle contrôlée.
 
-## 6. Idempotence du consommateur
+## 7. Idempotence du consommateur
 
 L’outbox garantit la conservation et la reprise côté producteur, mais le transport reste fondé sur une livraison au moins une fois. Les consommateurs doivent donc être idempotents.
 
 Chaque événement doit exposer un identifiant stable permettant au consommateur de détecter une livraison déjà appliquée. Les traitements financiers, notifications et intégrations partenaires ne doivent jamais supposer une livraison exactement une fois fournie par le réseau.
 
-## 7. Observabilité minimale
+## 8. Observabilité minimale
 
 Les métriques de production devront au minimum couvrir :
 
@@ -81,24 +95,28 @@ Les métriques de production devront au minimum couvrir :
 - nombre de tentatives par type d’événement ;
 - latence entre `createdAt` et `publishedAt` ;
 - débit de publication ;
-- nombre d’événements arrivés au maximum de tentatives.
+- nombre d’événements arrivés au maximum de tentatives ;
+- compteurs `claimed`, `published` et `failed` par cycle de worker.
 
 Des alertes doivent être déclenchées si l’âge ou le volume de backlog dépasse les seuils configurés, ou si un type d’événement accumule des échecs répétés.
 
-## 8. Transport externe
+## 9. Transport externe
 
 Le socle actuel ne choisit volontairement pas encore un broker définitif. Le futur adaptateur pourra cibler Kafka, RabbitMQ, NATS, un service cloud équivalent ou un transport partenaire, sans modifier la règle d’atomicité du ledger.
 
 Le transport devra :
 
+- implémenter `LedgerOutboxPublisher` ;
 - confirmer explicitement la publication avant `markPublished` ;
 - utiliser TLS et une identité de workload adaptée ;
 - ne jamais stocker ses secrets dans Git ;
 - respecter les clés d’idempotence et les identifiants d’événement ;
-- exposer des timeouts et retries configurables ;
+- exposer des timeouts configurables ;
 - propager l’identifiant de corrélation lorsque disponible.
 
-## 9. État actuel
+Les retries de transport bas niveau doivent être courts et bornés afin de ne pas contourner la politique de retry persistée de l’outbox.
+
+## 10. État actuel
 
 Le dépôt `mansa-platform` contient désormais :
 
@@ -107,11 +125,13 @@ Le dépôt `mansa-platform` contient désormais :
 - `LedgerOutboxService` pour réclamer un lot par bail optimiste ;
 - la gestion de succès via `markPublished` ;
 - la gestion d’échec et de replanification via `markFailed` ;
-- des tests Node couvrant claim, concurrence optimiste, succès et retry.
+- `LedgerOutboxDispatcherService` pour publier un lot via un adaptateur de transport ;
+- un backoff exponentiel borné avec jitter ;
+- des tests Node couvrant claim, concurrence optimiste, succès, échec, orchestration et calcul du backoff.
 
-Restent à construire avant production : le processus périodique ou worker dédié, l’adaptateur vers le broker choisi, le backoff avec jitter, les métriques et alertes, la dead-letter opérationnelle, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
+Restent à construire avant production : le processus périodique ou worker dédié, l’adaptateur vers le broker choisi, les métriques et alertes, la dead-letter opérationnelle, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
 
-## 10. Critères d’acceptation
+## 11. Critères d’acceptation
 
 Le lot outbox sera considéré prêt pour la recette de production lorsque :
 
@@ -119,7 +139,7 @@ Le lot outbox sera considéré prêt pour la recette de production lorsque :
 - plusieurs workers peuvent fonctionner sans double acquisition durable ;
 - une interruption pendant le traitement libère automatiquement l’événement après expiration du bail ;
 - un succès marque l’événement `PUBLISHED` une seule fois ;
-- un échec planifie un retry contrôlé ;
+- un échec planifie un retry contrôlé avec backoff borné ;
 - les événements au maximum de tentatives sont détectables et exploitables ;
 - les consommateurs sont idempotents ;
 - les métriques, alertes et runbooks de reprise sont validés ;
