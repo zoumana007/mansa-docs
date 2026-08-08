@@ -24,6 +24,23 @@ La stratégie de persistance PostgreSQL correspondante est détaillée dans `11-
 
 Ces routes sont réservées aux services autorisés. Elles ne doivent pas être exposées telles quelles au réseau public.
 
+### 2.1 Authentification service-à-service transitoire
+
+Les routes ledger déjà exposées par l’API gateway sont protégées par `InternalServiceGuard`.
+
+Le mécanisme actuel est volontairement transitoire :
+
+- le service appelant transmet `x-mansa-internal-token` ;
+- la valeur attendue provient exclusivement de `INTERNAL_SERVICE_TOKEN` dans l’environnement d’exécution ;
+- aucun jeton réel ne doit être versionné ;
+- une configuration absente ou inférieure à 32 caractères bloque les appels en mode fail-closed ;
+- une valeur erronée retourne une erreur d’autorisation sans révéler le secret attendu ;
+- la comparaison du jeton utilise une comparaison en temps constant lorsque les longueurs sont identiques.
+
+Ce mécanisme doit pouvoir être remplacé ultérieurement par mTLS ou une identité de workload signée sans modifier le contrat métier des contrôleurs. En production, la valeur doit provenir d’un gestionnaire de secrets et être rotatable.
+
+Le comportement du guard est couvert dans `mansa-platform/apps/api-gateway/test/internal-service.guard.test.mjs` : absence de configuration, jeton trop court, en-tête absent, jeton invalide, correspondance exacte et en-tête multi-valeur.
+
 ## 3. Publication d’une transaction
 
 La commande de publication contient au minimum :
@@ -135,6 +152,8 @@ Le lot ledger n’est considéré terminé pour une mise en recette que si :
 
 Les modèles, invariants et routes de transport sont définis dans `packages/contracts/src/ledger.ts` et `packages/contracts/src/ledger-api.ts`.
 
-Le schéma Prisma couvre désormais les principales structures de persistance : comptes enrichis, transactions avec idempotence et corrélation, compensation, séquence des écritures, projection de solde et outbox transactionnelle. La conception détaillée est documentée dans `11-persistance-ledger-postgresql.md`.
+Le schéma Prisma couvre les principales structures de persistance : comptes enrichis, transactions avec idempotence et corrélation, compensation, séquence des écritures, projection de solde et outbox transactionnelle. Les repositories PostgreSQL, l’orchestrateur de persistance et les lectures Prisma existent désormais pour le socle déjà construit.
 
-Restent à implémenter avant production : la migration Prisma générée et testée, le module NestJS, les repositories, les transactions PostgreSQL atomiques, le worker outbox, la réconciliation, les métriques et les tests d’intégration/concurrence.
+L’API gateway expose actuellement les lectures de compte, solde et écritures, avec pagination keyset pour les écritures. Ces routes sont protégées par le guard de service interne et le comportement de ce guard est couvert par des tests Node dédiés.
+
+Restent notamment à compléter avant production : les routes de publication, lecture d’une transaction et compensation, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels et les scénarios de concurrence/reprise.
