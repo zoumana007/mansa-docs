@@ -77,10 +77,15 @@ Une transaction `POSTED` n’est jamais modifiée ni supprimée. Une correction 
 
 La commande de compensation contient :
 
-- l’identifiant de la transaction d’origine ;
-- un code motif ;
+- l’identifiant de la transaction d’origine dans le chemin HTTP ;
+- un code motif `reasonCode` ;
+- un motif lisible `reason` ;
 - une clé d’idempotence ;
 - un identifiant de corrélation.
+
+Le backend vérifie qu’une transaction d’origine existe, qu’elle est encore `POSTED` et qu’aucune compensation n’est déjà liée. La transaction compensatoire reprend les mêmes comptes, montants et devises dans le même ordre, inverse `DEBIT` et `CREDIT`, met à jour les projections de solde et référence l’original via `reversalOfTransactionId`. L’opération marque ensuite l’original `REVERSED`, renseigne `reversedAt` et ajoute l’événement `ledger.transaction.reversed.v1` dans l’outbox au sein de la même transaction SQL.
+
+L’idempotence de la compensation inclut l’identifiant d’origine, le code motif, le motif lisible et la corrélation dans l’empreinte déterministe. Une répétition strictement identique retourne la compensation existante ; une réutilisation de la clé avec un contenu différent retourne un conflit.
 
 Les opérations de compensation manuelle ou administrative doivent appliquer les règles RBAC/ABAC, la séparation des tâches et, selon le niveau de risque, une double validation.
 
@@ -106,7 +111,7 @@ La persistance conserve en plus une position de projection via `projectionSequen
 
 ## 8. Atomicité backend attendue
 
-La publication d’une transaction doit être atomique avec :
+La publication ou la compensation d’une transaction doit être atomique avec :
 
 1. validation des invariants ;
 2. contrôle d’idempotence ;
@@ -156,6 +161,6 @@ Les modèles, invariants et routes de transport sont définis dans `packages/con
 
 Le schéma Prisma couvre les principales structures de persistance : comptes enrichis, transactions avec idempotence et corrélation, compensation, séquence des écritures, projection de solde et outbox transactionnelle. Les repositories PostgreSQL, l’orchestrateur de persistance et les lectures Prisma existent désormais pour le socle déjà construit.
 
-L’API gateway expose désormais la publication atomique d’une transaction, la lecture détaillée d’une transaction, la lecture de compte, la lecture de solde et la pagination des écritures. Ces routes sont protégées par le guard de service interne. La publication vérifie l’idempotence, les comptes, la devise et le pays, persiste les écritures et projections dans une transaction SQL et crée l’événement outbox associé.
+L’API gateway expose désormais les six routes du contrat : publication atomique, lecture détaillée d’une transaction, compensation, lecture de compte, lecture de solde et pagination des écritures. Ces routes sont protégées par le guard de service interne. La publication et la compensation utilisent une transaction SQL, mettent à jour les projections et créent l’événement outbox associé. La validation HTTP de compensation est couverte par des tests Node dédiés.
 
-Restent notamment à compléter avant production : la route de compensation, l’audit technique atomique, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels et les scénarios de concurrence/reprise.
+Restent notamment à compléter avant production : l’audit technique atomique, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels, les scénarios de concurrence/reprise et les contrôles d’autorisation métier renforcés autour des compensations administratives.
