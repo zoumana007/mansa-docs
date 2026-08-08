@@ -9,7 +9,7 @@ Le contrat TypeScript de référence se trouve dans :
 - `mansa-platform/packages/contracts/src/ledger.ts` pour les modèles et invariants ;
 - `mansa-platform/packages/contracts/src/ledger-api.ts` pour les routes et méthodes internes.
 
-La stratégie de persistance PostgreSQL correspondante est détaillée dans `11-persistance-ledger-postgresql.md`.
+La stratégie de persistance PostgreSQL correspondante est détaillée dans `11-persistance-ledger-postgresql.md`. Le mécanisme de livraison fiable des événements est détaillé dans `12-outbox-transactionnelle.md`.
 
 ## 2. Routes de référence
 
@@ -125,6 +125,8 @@ La publication ou la compensation d’une transaction doit être atomique avec :
 
 Aucun événement externe ne doit être publié avant le commit de la transaction SQL.
 
+Après le commit, la livraison de l’outbox utilise un bail optimiste : seuls les événements disponibles et sous la limite de tentatives sont réclamés, `attempts` est incrémenté lors du claim, `availableAt` protège temporairement l’événement contre une reprise concurrente, puis le résultat est marqué `PUBLISHED` ou replanifié en `FAILED`. Les consommateurs restent obligatoirement idempotents car la sémantique de transport visée est au moins une fois.
+
 ## 9. Erreurs minimales
 
 Le module backend doit mapper les erreurs métier vers les conventions API communes, notamment :
@@ -163,4 +165,6 @@ Le schéma Prisma couvre les principales structures de persistance : comptes enr
 
 L’API gateway expose désormais les six routes du contrat : publication atomique, lecture détaillée d’une transaction, compensation, lecture de compte, lecture de solde et pagination des écritures. Ces routes sont protégées par le guard de service interne. La publication et la compensation utilisent une transaction SQL, mettent à jour les projections et créent l’événement outbox associé. La validation HTTP de compensation est couverte par des tests Node dédiés.
 
-Restent notamment à compléter avant production : l’audit technique atomique, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels, les scénarios de concurrence/reprise et les contrôles d’autorisation métier renforcés autour des compensations administratives.
+Le socle de livraison outbox est également présent dans `LedgerOutboxService` : sélection des événements disponibles, claim optimiste avec bail, compteur de tentatives, marquage `PUBLISHED`, replanification `FAILED` et tests unitaires du cycle de livraison. Ce lot ne constitue pas encore un worker de production : il manque l’ordonnanceur ou processus dédié et l’adaptateur de transport externe.
+
+Restent notamment à compléter avant production : l’audit technique atomique, la migration Prisma générée et éprouvée en environnement PostgreSQL, l’exécution périodique du worker outbox et son broker, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels, les scénarios de concurrence/reprise et les contrôles d’autorisation métier renforcés autour des compensations administratives.
