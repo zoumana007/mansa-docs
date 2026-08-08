@@ -139,9 +139,33 @@ DISABLE_CASH_IF_CHANGE_UNAVAILABLE
 
 Avant d’accepter un paiement espèces, le contrôleur local doit vérifier que la politique peut être satisfaite avec le stock courant des recycleurs.
 
+Cette vérification ne doit pas se limiter à comparer le montant total disponible au montant à rendre. Le système doit prouver qu’une combinaison exacte de coupures existe avec les quantités réellement présentes. Exemple : disposer de 1 000 XOF au total ne garantit pas de pouvoir rendre exactement 700 XOF.
+
+Le contrat partagé `packages/contracts/src/kiosk-hardware.ts` expose donc un calcul déterministe qui :
+
+- filtre le stock selon la devise et la politique billets/pièces ;
+- refuse les inventaires invalides ;
+- distingue stock total insuffisant et stock total suffisant mais combinaison exacte impossible ;
+- respecte les quantités disponibles par coupure ;
+- retourne un plan de distribution explicite `dispensePlan` quand le rendu est possible ;
+- n’autorise l’acceptation du cash que si le rendu exact peut être composé.
+
+Les motifs normalisés comprennent notamment :
+
+```text
+NO_CHANGE_REQUIRED
+CHANGE_AVAILABLE
+INSUFFICIENT_CHANGE
+UNMAKEABLE_EXACT_CHANGE
+POLICY_DISALLOWS_CHANGE
+INVALID_AMOUNT
+INVALID_INVENTORY
+```
+
 Le portail d’exploitation suit au minimum :
 
 - montant disponible par cassette/recycleur ;
+- quantité disponible par coupure ;
 - seuil bas ;
 - seuil haut ;
 - cassette pleine ;
@@ -151,6 +175,8 @@ Le portail d’exploitation suit au minimum :
 - dernier remplissage ;
 - écarts de comptage ;
 - alertes de maintenance.
+
+Le plan de distribution calculé est une intention. Le périphérique doit confirmer les billets/pièces réellement distribués. Tout écart entre plan demandé et distribution confirmée déclenche un incident, empêche de considérer la transaction comme entièrement finalisée et alimente le rapprochement.
 
 ## 9. Dégradation partielle
 
@@ -251,9 +277,11 @@ Le lot borne est recevable lorsque :
 5. RFID/ANPR restent séparés des boutons de paiement ;
 6. les espèces XOF ne sont activées qu’après validation explicite du matériel monétique ;
 7. le rendu de monnaie est piloté par politique et stock réel ;
-8. une panne partielle conserve les moyens sains lorsque c’est sûr ;
-9. les événements et décisions sont corrélés et auditables ;
-10. l’intégration d’un autre constructeur ne nécessite pas de réécrire le moteur métier.
+8. le moteur sait refuser un stock globalement suffisant mais incapable de composer exactement le montant à rendre ;
+9. un rendu accepté produit un `dispensePlan` borné par les quantités réellement disponibles ;
+10. une panne partielle conserve les moyens sains lorsque c’est sûr ;
+11. les événements et décisions sont corrélés et auditables ;
+12. l’intégration d’un autre constructeur ne nécessite pas de réécrire le moteur métier.
 
 ## 14. Éléments à valider avec les fournisseurs
 
