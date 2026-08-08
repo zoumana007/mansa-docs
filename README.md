@@ -49,7 +49,7 @@ Règles obligatoires :
 
 Le contrat partagé de référence se trouve dans `mansa-platform/packages/contracts/src/ledger.ts`. Il couvre les comptes, les écritures, les transactions comptables, les commandes de publication et de compensation ainsi que la validation structurée des invariants. Le contrat de transport interne se trouve dans `mansa-platform/packages/contracts/src/ledger-api.ts` et définit les routes de publication, lecture, compensation, comptes, soldes et écritures. La spécification d’intégration correspondante est maintenue dans `volume-01-socle-technique/10-contrat-api-ledger.md`.
 
-La persistance PostgreSQL, les verrous, les séquences, les projections de solde, l’outbox transactionnelle, la réconciliation et les scénarios de reprise restent à implémenter dans le backend.
+Le socle de persistance PostgreSQL est désormais engagé dans le code : schéma Prisma, repositories, orchestrateur de persistance, pagination keyset, lectures Prisma et protection des routes internes déjà exposées. Les écritures transactionnelles complètes, le worker outbox, la réconciliation, les scénarios de reprise et les validations PostgreSQL/concurrence restent à terminer.
 
 ## Référence de recette
 
@@ -79,4 +79,4 @@ Aucun secret, identifiant réel, document KYC réel ou donnée personnelle ne do
 
 Les volumes 1 à 10 disposent désormais d’une première spécification structurée sur leurs domaines principaux. Le socle inclut une première série de décisions d’architecture alignées avec le monorepo, une matrice transverse de recette, une matrice RBAC, les contrats initiaux de notifications et de support, les invariants du grand livre en partie double et son contrat API interne. La documentation doit encore être enrichie avec les catalogues d’API complets, runbooks spécialisés, parcours détaillés des applications et décisions complémentaires.
 
-Le dépôt plateforme contient le socle du monorepo et plusieurs contrats métier partagés. Les applications exécutables, le grand livre persistant, les modules NestJS complets, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
+Le dépôt plateforme contient le socle du monorepo, plusieurs contrats métier partagés et une première tranche exécutable du ledger : persistance de référence, lectures de compte/solde/écritures, pagination keyset et authentification interne transitoire. Les routes d’écriture et de compensation complètes, les applications exécutables, les interfaces mobiles et web, les adaptateurs partenaires ainsi que les validations de production restent à construire progressivement.
