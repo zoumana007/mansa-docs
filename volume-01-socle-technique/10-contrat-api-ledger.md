@@ -86,6 +86,8 @@ Les opérations de compensation manuelle ou administrative doivent appliquer les
 
 ## 6. Lecture et pagination
 
+La lecture détaillée d’une transaction retourne son identité, sa référence, son type, son statut, ses informations d’idempotence et de corrélation, son pays, ses horodatages, ses éventuels liens de compensation et ses écritures ordonnées par `sequence`. Les montants exposés sur le transport HTTP sont sérialisés en chaînes d’unités mineures afin d’éviter toute perte de précision JSON.
+
 La lecture des écritures d’un compte accepte des bornes temporelles, un curseur et une limite. La pagination doit être stable : le curseur doit s’appuyer sur un ordre déterministe, idéalement une séquence comptable monotone plus l’identifiant de l’écriture.
 
 Le schéma PostgreSQL maintient un index `(accountId, postedAt, id)` compatible avec une pagination keyset stable des écritures.
@@ -154,6 +156,6 @@ Les modèles, invariants et routes de transport sont définis dans `packages/con
 
 Le schéma Prisma couvre les principales structures de persistance : comptes enrichis, transactions avec idempotence et corrélation, compensation, séquence des écritures, projection de solde et outbox transactionnelle. Les repositories PostgreSQL, l’orchestrateur de persistance et les lectures Prisma existent désormais pour le socle déjà construit.
 
-L’API gateway expose actuellement les lectures de compte, solde et écritures, avec pagination keyset pour les écritures. Ces routes sont protégées par le guard de service interne et le comportement de ce guard est couvert par des tests Node dédiés.
+L’API gateway expose désormais la publication atomique d’une transaction, la lecture détaillée d’une transaction, la lecture de compte, la lecture de solde et la pagination des écritures. Ces routes sont protégées par le guard de service interne. La publication vérifie l’idempotence, les comptes, la devise et le pays, persiste les écritures et projections dans une transaction SQL et crée l’événement outbox associé.
 
-Restent notamment à compléter avant production : les routes de publication, lecture d’une transaction et compensation, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels et les scénarios de concurrence/reprise.
+Restent notamment à compléter avant production : la route de compensation, l’audit technique atomique, la migration Prisma générée et éprouvée en environnement PostgreSQL, le worker outbox, la réconciliation, les métriques/alertes, les tests d’intégration PostgreSQL réels et les scénarios de concurrence/reprise.
