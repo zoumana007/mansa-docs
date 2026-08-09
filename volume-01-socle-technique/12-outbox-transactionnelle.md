@@ -28,140 +28,101 @@ Aucun secret, jeton d’accès, PAN complet, donnée KYC ou donnée fournisseur 
 
 Le service `LedgerOutboxService` du dépôt plateforme fournit la mécanique de réclamation concurrente.
 
-La méthode `claimBatch` :
-
-1. sélectionne uniquement les événements `PENDING` ou `FAILED` dont `availableAt` est échu ;
-2. exclut les événements ayant atteint le nombre maximal de tentatives ;
-3. trie de manière déterministe par disponibilité, création puis identifiant ;
-4. applique une limite bornée au lot ;
-5. tente une mise à jour optimiste sur chaque candidat en vérifiant l’identifiant, le statut, le nombre de tentatives attendu et la disponibilité ;
-6. incrémente `attempts` et repousse `availableAt` jusqu’à la fin du bail de traitement ;
-7. ne retourne que les événements effectivement réclamés par le worker courant.
-
-Cette stratégie empêche deux workers ayant lu le même candidat de l’acquérir simultanément dans le cas nominal. Le champ `availableAt` sert aussi de bail temporaire : un worker mort ou interrompu n’immobilise pas définitivement l’événement.
+La méthode `claimBatch` sélectionne uniquement les événements disponibles sous la limite de tentatives, trie de manière déterministe, applique un lot borné, puis utilise une mise à jour optimiste pour empêcher deux workers d’acquérir durablement le même événement. `availableAt` sert également de bail temporaire afin qu’une interruption ne bloque pas définitivement la livraison.
 
 ## 4. Orchestration de livraison
 
-`LedgerOutboxDispatcherService` orchestre un lot réclamé sans imposer de broker particulier.
-
-Il reçoit un adaptateur conforme au contrat `LedgerOutboxPublisher`, publie chaque événement puis :
-
-- appelle `markPublished` uniquement après confirmation de l’adaptateur ;
-- appelle `markFailed` si la publication lève une erreur ;
-- calcule un délai de retry exponentiel borné ;
-- applique un jitter configurable pour éviter que plusieurs workers se resynchronisent après une panne ;
-- retourne un bilan `{ claimed, published, failed }` exploitable par le worker et l’observabilité.
-
-Le dispatcher reste volontairement indépendant de Kafka, RabbitMQ, NATS ou d’un service cloud. Le choix de transport est fourni par un adaptateur dédié.
+`LedgerOutboxDispatcherService` orchestre un lot réclamé sans imposer de broker particulier. Il reçoit un adaptateur conforme à `LedgerOutboxPublisher`, publie chaque événement, appelle `markPublished` après confirmation, appelle `markFailed` en cas d’erreur, applique un backoff exponentiel borné avec jitter et retourne `{ claimed, published, failed }`.
 
 ## 5. Worker périodique
 
-Le dépôt plateforme fournit désormais `LedgerOutboxWorker`, un orchestrateur périodique indépendant du transport final.
+Le dépôt plateforme fournit `LedgerOutboxWorker`, un orchestrateur périodique indépendant du transport final.
 
 Le worker :
 
 - déclenche `dispatchBatch` à intervalle configurable ;
-- applique un minimum sûr et revient à une valeur par défaut si l’intervalle fourni est invalide ;
-- ne démarre qu’un seul timer même si `start()` est appelé plusieurs fois ;
-- arrête proprement son timer via `stop()` ;
-- expose `runOnce()` pour les tests, les jobs ponctuels et l’exploitation ;
-- empêche deux exécutions du même worker de se chevaucher ;
-- libère toujours son verrou d’exécution, y compris si le dispatcher lève une erreur ;
-- transmet au dispatcher les limites de lot, de tentatives, de bail et les paramètres de backoff sans mélanger ces paramètres avec la cadence du timer.
+- applique une cadence minimale sûre ;
+- ne démarre qu’un seul timer ;
+- s’arrête proprement ;
+- expose `runOnce()` ;
+- empêche deux exécutions locales de se chevaucher ;
+- libère toujours le verrou d’exécution, même après erreur ;
+- transmet les options de lot, bail, tentatives et backoff au dispatcher.
 
-Le worker n’embarque volontairement aucun broker ni secret. Il doit être instancié avec un `LedgerOutboxPublisher` concret au niveau de l’adaptateur d’infrastructure ou du processus de transport. Tant qu’aucun transport n’est configuré, il ne doit pas être activé en production.
+Le worker n’embarque aucun broker ni secret. Il doit être instancié avec un `LedgerOutboxPublisher` concret au niveau infrastructure. Tant qu’aucun transport réel n’est configuré, il ne doit pas être activé en production.
 
-## 6. Publication réussie
+## 6. Observabilité locale du worker
 
-Après confirmation du broker ou du transport cible, le dispatcher appelle `markPublished`.
+`LedgerOutboxWorker` expose désormais `getSnapshot()` afin de fournir une vue locale sans dépendance à une solution de métriques externe.
 
-L’opération :
+Le snapshot contient :
 
-- ne cible que les événements encore `PENDING` ou `FAILED` ;
-- bascule le statut vers `PUBLISHED` ;
-- renseigne `publishedAt` ;
-- efface `lastError` ;
-- conserve l’enregistrement pour l’audit et la réconciliation.
+- état `started` et `running` ;
+- nombre de cycles terminés ;
+- nombre de cycles ignorés parce qu’un cycle précédent est encore actif ;
+- nombre de cycles ayant levé une erreur ;
+- date du dernier démarrage et de la dernière fin de cycle ;
+- durée du dernier cycle ;
+- dernier bilan `{ claimed, published, failed }` ;
+- dernière erreur technique, tronquée et non sensible.
 
-Un événement `PUBLISHED` ne doit pas être remis en file par un simple retry technique.
+Cette vue constitue la source locale destinée au futur export Prometheus/OpenTelemetry, à un endpoint interne de santé ou à un superviseur de processus. Elle ne doit pas exposer de payload métier ni de secret.
 
-## 7. Échec, backoff et retry
+## 7. Publication réussie et retry
 
-Lorsqu’une publication échoue, `markFailed` :
-
-- passe l’événement à `FAILED` ;
-- calcule une nouvelle date `availableAt` selon le délai de retry fourni ;
-- conserve le nombre de tentatives déjà incrémenté lors du claim ;
-- enregistre une erreur technique limitée en taille.
-
-Le dispatcher fournit un backoff exponentiel borné avec jitter configurable. La limite de tentatives reste portée par `claimBatch`. Une fois cette limite atteinte, l’événement reste visible pour les opérations de support, d’alerte et de reprise manuelle contrôlée.
+Après confirmation du transport, `markPublished` bascule l’événement vers `PUBLISHED`, renseigne `publishedAt`, efface `lastError` et conserve l’enregistrement pour audit. En cas d’échec, `markFailed` replanifie l’événement et stocke une erreur technique limitée en taille. La limite de tentatives reste appliquée lors du prochain `claimBatch`.
 
 ## 8. Idempotence du consommateur
 
-L’outbox garantit la conservation et la reprise côté producteur, mais le transport reste fondé sur une livraison au moins une fois. Les consommateurs doivent donc être idempotents.
+La livraison reste au moins une fois. Les consommateurs doivent être idempotents et utiliser un identifiant stable pour reconnaître un événement déjà appliqué. Aucun flux financier ne doit supposer une garantie réseau exactement une fois.
 
-Chaque événement doit exposer un identifiant stable permettant au consommateur de détecter une livraison déjà appliquée. Les traitements financiers, notifications et intégrations partenaires ne doivent jamais supposer une livraison exactement une fois fournie par le réseau.
-
-## 9. Observabilité minimale
+## 9. Observabilité minimale de production
 
 Les métriques de production devront au minimum couvrir :
 
-- nombre d’événements `PENDING` ;
+- événements `PENDING` et `FAILED` ;
 - âge du plus ancien événement disponible ;
-- nombre d’événements `FAILED` ;
-- nombre de tentatives par type d’événement ;
-- latence entre `createdAt` et `publishedAt` ;
+- tentatives par type d’événement ;
+- latence `createdAt` → `publishedAt` ;
 - débit de publication ;
-- nombre d’événements arrivés au maximum de tentatives ;
-- compteurs `claimed`, `published` et `failed` par cycle de worker ;
-- durée d’un cycle ;
-- nombre de cycles ignorés parce qu’un traitement précédent est encore actif.
+- événements ayant atteint la limite de tentatives ;
+- `claimed`, `published`, `failed` par cycle ;
+- durée des cycles ;
+- cycles ignorés pour chevauchement ;
+- cycles ayant échoué avant retour du dispatcher.
 
-Des alertes doivent être déclenchées si l’âge ou le volume de backlog dépasse les seuils configurés, ou si un type d’événement accumule des échecs répétés.
+Des alertes doivent être déclenchées en cas de backlog trop ancien, volume anormal ou répétition d’échecs.
 
 ## 10. Transport externe
 
-Le socle actuel ne choisit volontairement pas encore un broker définitif. Le futur adaptateur pourra cibler Kafka, RabbitMQ, NATS, un service cloud équivalent ou un transport partenaire, sans modifier la règle d’atomicité du ledger.
-
-Le transport devra :
-
-- implémenter `LedgerOutboxPublisher` ;
-- confirmer explicitement la publication avant `markPublished` ;
-- utiliser TLS et une identité de workload adaptée ;
-- ne jamais stocker ses secrets dans Git ;
-- respecter les clés d’idempotence et les identifiants d’événement ;
-- exposer des timeouts configurables ;
-- propager l’identifiant de corrélation lorsque disponible.
-
-Les retries de transport bas niveau doivent être courts et bornés afin de ne pas contourner la politique de retry persistée de l’outbox.
+Le broker définitif reste volontairement non imposé. L’adaptateur pourra cibler Kafka, RabbitMQ, NATS, un service cloud équivalent ou un transport partenaire. Il devra implémenter `LedgerOutboxPublisher`, confirmer explicitement la publication, utiliser TLS et une identité de workload, appliquer des timeouts bornés, conserver l’identifiant d’événement et ne jamais stocker ses secrets dans Git.
 
 ## 11. État actuel
 
 Le dépôt `mansa-platform` contient désormais :
 
 - le modèle Prisma `OutboxEvent` ;
-- la création atomique d’événements lors de la publication et de la compensation du ledger ;
-- `LedgerOutboxService` pour réclamer un lot par bail optimiste ;
-- la gestion de succès via `markPublished` ;
-- la gestion d’échec et de replanification via `markFailed` ;
-- `LedgerOutboxDispatcherService` pour publier un lot via un adaptateur de transport ;
-- un backoff exponentiel borné avec jitter ;
-- `LedgerOutboxWorker` pour l’exécution périodique sans chevauchement ;
-- des tests Node couvrant claim, concurrence optimiste, succès, échec, orchestration, calcul du backoff et cycle du worker.
+- la création atomique d’événements avec les écritures ledger ;
+- `LedgerOutboxService` et sa réclamation par bail optimiste ;
+- `markPublished` et `markFailed` ;
+- `LedgerOutboxDispatcherService` ;
+- backoff exponentiel borné avec jitter ;
+- `LedgerOutboxWorker` périodique sans chevauchement ;
+- snapshot local d’observabilité du worker ;
+- tests Node couvrant cycle, verrou, reprise après erreur et compteurs d’observabilité.
 
-Restent à construire avant production : l’adaptateur vers le broker choisi, le câblage du worker dans un processus d’infrastructure réel, les métriques et alertes, la dead-letter opérationnelle, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
+Restent à construire avant production : l’adaptateur vers le broker choisi, le câblage du worker dans un processus d’infrastructure réel, l’export des métriques et alertes, la dead-letter opérationnelle, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
 
 ## 12. Critères d’acceptation
 
-Le lot outbox sera considéré prêt pour la recette de production lorsque :
+Le lot outbox sera prêt pour recette production lorsque :
 
-- aucun événement créé dans une transaction SQL validée ne peut être perdu après redémarrage ;
+- aucun événement validé en SQL ne peut être perdu après redémarrage ;
 - plusieurs workers peuvent fonctionner sans double acquisition durable ;
-- une interruption pendant le traitement libère automatiquement l’événement après expiration du bail ;
+- une interruption libère l’événement après expiration du bail ;
 - un worker local ne lance jamais deux cycles simultanés ;
-- un succès marque l’événement `PUBLISHED` une seule fois ;
-- un échec planifie un retry contrôlé avec backoff borné ;
-- les événements au maximum de tentatives sont détectables et exploitables ;
+- succès et échec sont persistés correctement ;
+- les événements en limite de tentatives sont détectables ;
 - les consommateurs sont idempotents ;
 - les métriques, alertes et runbooks de reprise sont validés ;
-- les tests d’intégration PostgreSQL et de concurrence sont automatisés.
+- les tests PostgreSQL et de concurrence sont automatisés.
