@@ -32,13 +32,13 @@ En plus du token de service interne, l’appel doit fournir :
 - `x-mansa-operation-reason` : motif explicite de la remise en file ;
 - `x-correlation-id` : recommandé ; s’il est absent, l’intercepteur de corrélation en génère un.
 
-Après une remise en file réussie, la plateforme persiste un enregistrement avec l’action `LEDGER_OUTBOX_DEAD_LETTER_REQUEUED`, la ressource `OUTBOX_EVENT`, l’identifiant de l’événement et le seuil `maxAttempts` utilisé.
+Une remise en file réussie persiste un enregistrement avec l’action `LEDGER_OUTBOX_DEAD_LETTER_REQUEUED`, la ressource `OUTBOX_EVENT`, l’identifiant de l’événement et le seuil `maxAttempts` utilisé.
 
 Aucun audit de succès n’est créé lorsque l’événement n’existe pas ou n’est plus éligible à la remise en file.
 
 ## 4. Sécurité
 
-Le mécanisme actuel est une première couche d’audit serveur. Avant exposition à un portail humain, il faudra ajouter :
+Le mécanisme actuel apporte une première couche d’audit serveur persistante et atomique avec la mutation concernée. Avant exposition à un portail humain, il faudra encore ajouter :
 
 - authentification utilisateur forte ou identité de workload signée ;
 - autorisation RBAC/ABAC dédiée aux opérations outbox ;
@@ -52,16 +52,32 @@ Le header `x-mansa-actor-id` ne constitue pas à lui seul une preuve d’identit
 
 ## 5. Disponibilité et atomicité
 
-La remise en file et l’écriture d’audit sont actuellement deux opérations persistantes successives. L’action métier est réalisée puis l’audit est écrit.
+La remise en file et l’écriture d’audit sont regroupées dans une transaction PostgreSQL unique via Prisma.
 
-Avant production critique, la plateforme devra soit :
+Le comportement attendu est désormais :
 
-- regrouper la mutation de l’outbox et l’écriture d’audit dans une transaction PostgreSQL unique ;
-- soit appliquer un mécanisme équivalent garantissant qu’une remise en file réussie ne puisse pas rester sans trace durable.
+1. la transaction est ouverte ;
+2. l’événement dead-letter est remis à l’état `PENDING` uniquement s’il reste éligible ;
+3. si aucune ligne n’est modifiée, aucun audit n’est créé ;
+4. si la mutation réussit, l’enregistrement `OperationalAuditLog` est écrit dans la même transaction ;
+5. si l’écriture d’audit échoue, la transaction échoue et la mutation de l’outbox est annulée ;
+6. le succès n’est retourné qu’après validation complète de la transaction.
 
-Cette exigence est volontairement conservée comme critère de durcissement : l’échec du stockage d’audit ne doit jamais devenir silencieux.
+Cette règle empêche qu’une remise en file réussie reste sans trace durable à cause d’un échec d’audit intermédiaire.
 
-## 6. Critères d’acceptation
+## 6. Tests de référence
+
+Le dépôt `mansa-platform` couvre :
+
+- le contrat du contrôleur et les métadonnées d’audit ;
+- le rejet des headers opérateur manquants ;
+- l’absence d’audit lorsque l’événement n’est plus éligible ;
+- l’exécution mutation + audit dans une transaction unique ;
+- la propagation d’un échec du stockage d’audit afin de provoquer le rollback transactionnel.
+
+Les tests utilisent des doubles Prisma pour vérifier le contrat d’orchestration. Une validation d’intégration PostgreSQL réelle reste nécessaire avant qualification production afin de couvrir concurrence, isolation et comportement effectif des transactions sous charge.
+
+## 7. Critères d’acceptation
 
 Le lot est considéré comme intégré au socle lorsque :
 
@@ -69,8 +85,10 @@ Le lot est considéré comme intégré au socle lorsque :
 - une requeue exige un acteur et un motif ;
 - l’identifiant de corrélation est conservé ;
 - une requeue réussie produit une trace persistante ;
+- mutation et audit sont atomiques ;
+- un échec de l’audit fait échouer l’opération complète ;
 - une requeue refusée n’est pas présentée comme un succès ;
-- les tests du contrôleur vérifient l’audit et le rejet des métadonnées manquantes ;
+- les tests du contrôleur et du service vérifient le contrat ;
 - la documentation opérationnelle reste alignée sur les headers et le nom de l’action.
 
-Le lot n’est pas encore équivalent à un système d’audit de production complet tant que l’atomicité mutation + audit, l’identité attestée et l’export centralisé ne sont pas finalisés.
+Le lot n’est pas encore équivalent à un système d’audit de production complet tant que l’identité attestée, l’export centralisé et les validations PostgreSQL/concurrence ne sont pas finalisés.
