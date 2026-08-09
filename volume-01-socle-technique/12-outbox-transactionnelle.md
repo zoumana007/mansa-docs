@@ -72,11 +72,28 @@ Cette vue constitue la source locale destinée au futur export Prometheus/OpenTe
 
 Après confirmation du transport, `markPublished` bascule l’événement vers `PUBLISHED`, renseigne `publishedAt`, efface `lastError` et conserve l’enregistrement pour audit. En cas d’échec, `markFailed` replanifie l’événement et stocke une erreur technique limitée en taille. La limite de tentatives reste appliquée lors du prochain `claimBatch`.
 
-## 8. Idempotence du consommateur
+## 8. Dead-letter opérationnelle
+
+Un événement `FAILED` dont `attempts` atteint ou dépasse la limite configurée n’est plus réclamé automatiquement par `claimBatch`. Il constitue alors une dead-letter opérationnelle sans nécessiter un nouveau statut de base de données.
+
+`LedgerOutboxService.listDeadLetters()` permet de lister ces événements avec un lot borné. La projection destinée à l’exploitation contient uniquement les métadonnées nécessaires au diagnostic : identifiant, agrégat, type d’événement, transaction liée, nombre de tentatives, dates et dernière erreur. Le `payload` n’est volontairement pas sélectionné afin de limiter l’exposition de données métier dans les outils d’exploitation.
+
+`LedgerOutboxService.requeueDeadLetter()` permet une remise en file explicite. La remise en file :
+
+- ne cible que les événements `FAILED` ayant réellement atteint la limite de tentatives ;
+- rétablit `status = PENDING` ;
+- remet `attempts` à zéro ;
+- rend l’événement immédiatement disponible ;
+- efface `publishedAt` et `lastError` ;
+- ne modifie ni l’identité ni le payload de l’événement.
+
+Cette opération devra être exposée uniquement via une interface d’exploitation interne protégée, auditée et réservée à des rôles autorisés. Une remise en file ne doit jamais être déclenchée automatiquement en boucle après épuisement des tentatives.
+
+## 9. Idempotence du consommateur
 
 La livraison reste au moins une fois. Les consommateurs doivent être idempotents et utiliser un identifiant stable pour reconnaître un événement déjà appliqué. Aucun flux financier ne doit supposer une garantie réseau exactement une fois.
 
-## 9. Observabilité minimale de production
+## 10. Observabilité minimale de production
 
 Les métriques de production devront au minimum couvrir :
 
@@ -86,18 +103,20 @@ Les métriques de production devront au minimum couvrir :
 - latence `createdAt` → `publishedAt` ;
 - débit de publication ;
 - événements ayant atteint la limite de tentatives ;
+- nombre de dead-letters en attente ;
+- nombre de remises en file manuelles ;
 - `claimed`, `published`, `failed` par cycle ;
 - durée des cycles ;
 - cycles ignorés pour chevauchement ;
 - cycles ayant échoué avant retour du dispatcher.
 
-Des alertes doivent être déclenchées en cas de backlog trop ancien, volume anormal ou répétition d’échecs.
+Des alertes doivent être déclenchées en cas de backlog trop ancien, volume anormal, répétition d’échecs ou apparition de dead-letters.
 
-## 10. Transport externe
+## 11. Transport externe
 
 Le broker définitif reste volontairement non imposé. L’adaptateur pourra cibler Kafka, RabbitMQ, NATS, un service cloud équivalent ou un transport partenaire. Il devra implémenter `LedgerOutboxPublisher`, confirmer explicitement la publication, utiliser TLS et une identité de workload, appliquer des timeouts bornés, conserver l’identifiant d’événement et ne jamais stocker ses secrets dans Git.
 
-## 11. État actuel
+## 12. État actuel
 
 Le dépôt `mansa-platform` contient désormais :
 
@@ -105,15 +124,17 @@ Le dépôt `mansa-platform` contient désormais :
 - la création atomique d’événements avec les écritures ledger ;
 - `LedgerOutboxService` et sa réclamation par bail optimiste ;
 - `markPublished` et `markFailed` ;
+- détection des événements épuisés via `listDeadLetters` ;
+- remise en file contrôlée via `requeueDeadLetter` ;
 - `LedgerOutboxDispatcherService` ;
 - backoff exponentiel borné avec jitter ;
 - `LedgerOutboxWorker` périodique sans chevauchement ;
 - snapshot local d’observabilité du worker ;
-- tests Node couvrant cycle, verrou, reprise après erreur et compteurs d’observabilité.
+- tests Node couvrant cycle, verrou, reprise après erreur, compteurs d’observabilité et dead-letter opérationnelle.
 
-Restent à construire avant production : l’adaptateur vers le broker choisi, le câblage du worker dans un processus d’infrastructure réel, l’export des métriques et alertes, la dead-letter opérationnelle, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
+Restent à construire avant production : l’adaptateur vers le broker choisi, le câblage du worker dans un processus d’infrastructure réel, l’export des métriques et alertes, l’interface d’exploitation/audit des dead-letters, les tests PostgreSQL réels de concurrence et les scénarios de reprise après interruption brutale.
 
-## 12. Critères d’acceptation
+## 13. Critères d’acceptation
 
 Le lot outbox sera prêt pour recette production lorsque :
 
@@ -123,6 +144,8 @@ Le lot outbox sera prêt pour recette production lorsque :
 - un worker local ne lance jamais deux cycles simultanés ;
 - succès et échec sont persistés correctement ;
 - les événements en limite de tentatives sont détectables ;
+- une dead-letter peut être listée sans exposer son payload ;
+- une remise en file est explicite, autorisée et auditée ;
 - les consommateurs sont idempotents ;
 - les métriques, alertes et runbooks de reprise sont validés ;
 - les tests PostgreSQL et de concurrence sont automatisés.
