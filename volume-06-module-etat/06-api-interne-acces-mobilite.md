@@ -50,6 +50,34 @@ Filtres pris en charge :
 
 L’ordre de référence est `validFrom DESC, id DESC`. Les montants sont reconstruits à partir des unités mineures `BigInt` PostgreSQL vers la représentation chaîne de `Money`.
 
+## Validations automatisées
+
+La tranche de lecture est désormais couverte à deux niveaux.
+
+### Contrôleur HTTP interne
+
+`apps/api-gateway/test/access-controller.test.mjs` vérifie :
+
+- rejet d’une lecture sans `organizationId` avant tout appel au service ;
+- conversion d’une ressource absente dans le tenant demandé en `404` ;
+- propagation correcte du tenant et des filtres combinés ;
+- validation de `limit` entre `1` et `100` ;
+- absence d’appel à la persistance lorsqu’une requête est invalide.
+
+### PostgreSQL / Prisma
+
+`apps/api-gateway/test/access-postgres.test.mjs` couvre maintenant aussi :
+
+- lecture d’un credential limitée à son organisation ;
+- non-divulgation du même identifiant depuis un autre tenant ;
+- filtrage combiné `subjectId + status + credentialType` sans fuite cross-tenant ;
+- lecture d’un entitlement limitée à son organisation ;
+- reconstruction d’un `amountLimit` depuis `BIGINT` vers `Money.amountMinor` chaîne ;
+- filtrage combiné `subjectId + useCase + status` sans fuite cross-tenant ;
+- conservation des tests de concurrence, idempotence de décision et isolation des quotas déjà présents.
+
+Les scénarios PostgreSQL restent opt-in localement via `RUN_POSTGRES_TESTS=1` et sont exécutés par la CI PostgreSQL dédiée configurée dans le dépôt plateforme.
+
 ## Erreurs
 
 - `400` : `organizationId` absent/vide ou `limit` hors limites ;
@@ -71,7 +99,8 @@ Ces opérations ne doivent pas être simulées tant que leurs règles d’idempo
 4. Les filtres restent combinables avec l’isolation tenant.
 5. L’évaluation existante conserve son idempotence par `(organizationId, requestId)`.
 6. Aucune donnée secrète ou credential technique privée n’est exposée : seul `publicReference` appartient au contrat.
-7. La prochaine tranche ajoute des tests HTTP et PostgreSQL ciblés sur ces lectures avant d’ouvrir les mutations.
+7. Les lectures sont couvertes par des tests de contrôleur et PostgreSQL avant l’ouverture des mutations.
+8. La prochaine tranche doit persister l’idempotence et l’audit des créations avant d’exposer `createCredential` et `createEntitlement`.
 
 ## Fichiers de référence
 
@@ -80,4 +109,6 @@ Ces opérations ne doivent pas être simulées tant que leurs règles d’idempo
 - `mansa-platform/apps/api-gateway/src/access/access.controller.ts`
 - `mansa-platform/apps/api-gateway/src/access/access.service.ts`
 - `mansa-platform/apps/api-gateway/src/access/access.repository.ts`
+- `mansa-platform/apps/api-gateway/test/access-controller.test.mjs`
+- `mansa-platform/apps/api-gateway/test/access-postgres.test.mjs`
 - `mansa-platform/apps/api-gateway/prisma/schema.prisma`
