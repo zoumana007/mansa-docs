@@ -186,9 +186,36 @@ Le contrat de transport est maintenu dans :
 
 `mansa-platform/packages/contracts/src/reconciliation-api.ts`
 
-Le moteur de comparaison expose désormais une fonction pure `compareReconciliationTransactions` ainsi qu'un résumé de lot `summarizeReconciliationComparisons`.
+Le moteur de comparaison expose une fonction pure `compareReconciliationTransactions` ainsi qu'un résumé de lot `summarizeReconciliationComparisons`.
 
-La première tranche couvre :
+La persistance PostgreSQL de référence est désormais définie dans :
+
+`mansa-platform/apps/api-gateway/prisma/schema.prisma`
+
+avec les modèles :
+
+```text
+ReconciliationBatch
+ReconciliationItem
+```
+
+et les enums persistés alignés sur les contrats :
+
+```text
+ReconciliationBatchStatus
+ReconciliationItemStatus
+ReconciliationMismatchReason
+```
+
+La migration correspondante est versionnée dans :
+
+`apps/api-gateway/prisma/migrations/20260809073500_add_reconciliation_persistence/migration.sql`.
+
+Le modèle de lot conserve le fournisseur, la référence et l'empreinte de source, la période couverte, le statut, les compteurs, les dates de traitement et la cause d'échec. L'unicité `(providerId, sourceFingerprint)` empêche de créer silencieusement deux lots pour exactement la même source fournisseur lorsque son empreinte est disponible.
+
+Le modèle d'item conserve séparément références, montants, statuts interne/fournisseur, nombre d'occurrences fournisseur, motif d'écart, empreinte de ligne et données de résolution. La clé `resolutionIdempotencyKey` est unique lorsqu'elle est fournie afin qu'une même résolution ne soit pas appliquée plusieurs fois.
+
+La tranche implémentée couvre maintenant :
 
 - normalisation devise/statut ;
 - validation des montants entiers ;
@@ -197,9 +224,27 @@ La première tranche couvre :
 - écart de devise ;
 - écart de montant ;
 - écart de statut ;
-- résumé déterministe par motif.
+- résumé déterministe par motif ;
+- schéma PostgreSQL des lots et items ;
+- migration reproductible et index de consultation ;
+- champs nécessaires à l'idempotence d'import et de résolution.
 
-## 15. Tests de recette minimaux
+## 15. Contraintes de persistance
+
+Les règles suivantes sont obligatoires :
+
+1. `periodEnd` doit être postérieur ou égal à `periodStart` ; cette validation est assurée par le service métier avant écriture et doit être couverte par tests ;
+2. tous les montants sont stockés en `BIGINT` et convertis de façon sûre aux frontières TypeScript ;
+3. une ligne ne doit pas être créée sans référence interne ni référence fournisseur ;
+4. `providerOccurrenceCount` doit rester supérieur ou égal à 1 ;
+5. une résolution ne doit pas supprimer le motif d'écart historique ;
+6. le recalcul des compteurs du lot doit être transactionnel avec les changements d'état des items lorsque ces compteurs sont matérialisés ;
+7. les imports doivent rechercher un lot existant par fournisseur et empreinte avant création ;
+8. les données brutes sensibles ne doivent pas être dupliquées dans `metadata` lorsque des références minimales suffisent.
+
+Les contraintes impossibles à exprimer proprement dans Prisma sans rigidifier la migration restent validées dans le service applicatif puis dans les tests PostgreSQL.
+
+## 16. Tests de recette minimaux
 
 Le lot est acceptable lorsque les tests automatisés démontrent :
 
@@ -211,8 +256,15 @@ Le lot est acceptable lorsque les tests automatisés démontrent :
 6. un statut différent est détecté ;
 7. les snapshots invalides sont rejetés ;
 8. le résumé du lot compte exactement les résultats et motifs ;
-9. les entrées originales ne sont pas mutées par le moteur.
+9. les entrées originales ne sont pas mutées par le moteur ;
+10. la migration crée les deux tables et leurs index ;
+11. une même empreinte de source ne peut pas créer deux lots pour le même fournisseur ;
+12. deux fournisseurs différents peuvent utiliser la même empreinte sans collision ;
+13. une même clé de résolution ne peut être appliquée à deux items ;
+14. la suppression d'un lot possédant des items est refusée par la relation `RESTRICT`.
 
-## 16. Étapes suivantes
+## 17. Étapes suivantes
 
-La tranche suivante devra brancher ce moteur sur une persistance de lots et d'items, puis sur un import fournisseur de test. Avant production, il restera à ajouter les tests PostgreSQL/concurrence, les métriques exportées, les seuils d'alerte, les adaptateurs partenaires et les runbooks de reprise.
+La tranche suivante doit ajouter les repositories Prisma des lots et items, une transaction de création/import de lot, puis un import fournisseur de test utilisant une source tabulaire fictive. Elle devra recalculer les compteurs de lot de façon atomique et couvrir l'idempotence d'import.
+
+Avant production, il restera à ajouter les tests PostgreSQL/concurrence, les métriques exportées, les seuils d'alerte, les adaptateurs partenaires réels et les runbooks de reprise.
