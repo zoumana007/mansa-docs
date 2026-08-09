@@ -188,52 +188,45 @@ Le contrat de transport est maintenu dans :
 
 Le moteur de comparaison expose une fonction pure `compareReconciliationTransactions` ainsi qu'un résumé de lot `summarizeReconciliationComparisons`.
 
-La persistance PostgreSQL de référence est désormais définie dans :
+La persistance PostgreSQL de référence est définie dans :
 
 `mansa-platform/apps/api-gateway/prisma/schema.prisma`
 
-avec les modèles :
-
-```text
-ReconciliationBatch
-ReconciliationItem
-```
-
-et les enums persistés alignés sur les contrats :
-
-```text
-ReconciliationBatchStatus
-ReconciliationItemStatus
-ReconciliationMismatchReason
-```
+avec les modèles `ReconciliationBatch` et `ReconciliationItem`, ainsi que les enums persistés alignés sur les contrats.
 
 La migration correspondante est versionnée dans :
 
 `apps/api-gateway/prisma/migrations/20260809073500_add_reconciliation_persistence/migration.sql`.
 
-Le modèle de lot conserve le fournisseur, la référence et l'empreinte de source, la période couverte, le statut, les compteurs, les dates de traitement et la cause d'échec. L'unicité `(providerId, sourceFingerprint)` empêche de créer silencieusement deux lots pour exactement la même source fournisseur lorsque son empreinte est disponible.
+Le repository applicatif est maintenant implémenté dans :
 
-Le modèle d'item conserve séparément références, montants, statuts interne/fournisseur, nombre d'occurrences fournisseur, motif d'écart, empreinte de ligne et données de résolution. La clé `resolutionIdempotencyKey` est unique lorsqu'elle est fournie afin qu'une même résolution ne soit pas appliquée plusieurs fois.
+`apps/api-gateway/src/reconciliation/reconciliation.repository.ts`.
 
-La tranche implémentée couvre maintenant :
+Il assure la recherche idempotente par `(providerId, sourceFingerprint)`, la création transactionnelle d'un lot et de ses items, la matérialisation atomique des compteurs, ainsi que les lectures bornées des lots et items.
 
-- normalisation devise/statut ;
-- validation des montants entiers ;
-- transactions manquantes dans les deux sens ;
-- doublons de référence fournisseur ;
-- écart de devise ;
-- écart de montant ;
-- écart de statut ;
-- résumé déterministe par motif ;
-- schéma PostgreSQL des lots et items ;
-- migration reproductible et index de consultation ;
-- champs nécessaires à l'idempotence d'import et de résolution.
+Un adaptateur fournisseur de test déterministe est désormais disponible dans :
+
+`apps/api-gateway/src/reconciliation/reconciliation-provider.adapter.ts`.
+
+Il prend une source fournisseur normalisée et un ensemble de transactions internes de test, normalise références/devise/statut, compte les occurrences fournisseur, calcule une empreinte SHA-256 de source et de ligne, puis délègue la classification au moteur métier partagé. Il n'embarque aucun format bancaire réel, aucun secret ni donnée de production.
+
+Le service `ReconciliationImportService` branche cet adaptateur sur `ReconciliationRepository`. L'import convertit les montants vers `BIGINT` aux frontières de persistance, conserve les empreintes et bénéficie de l'idempotence du lot.
+
+Le module NestJS `ReconciliationModule` est enregistré dans l'API Gateway. Les premières routes de consultation sont exposées uniquement sous l'espace interne protégé :
+
+```text
+GET /v1/internal/reconciliation/batches
+GET /v1/internal/reconciliation/batches/:batchId
+GET /v1/internal/reconciliation/batches/:batchId/items
+```
+
+Elles utilisent le même `InternalServiceGuard` que les routes internes du ledger. Aucun endpoint public non authentifié de rapprochement n'est ouvert.
 
 ## 15. Contraintes de persistance
 
 Les règles suivantes sont obligatoires :
 
-1. `periodEnd` doit être postérieur ou égal à `periodStart` ; cette validation est assurée par le service métier avant écriture et doit être couverte par tests ;
+1. `periodEnd` doit être postérieur ou égal à `periodStart` ;
 2. tous les montants sont stockés en `BIGINT` et convertis de façon sûre aux frontières TypeScript ;
 3. une ligne ne doit pas être créée sans référence interne ni référence fournisseur ;
 4. `providerOccurrenceCount` doit rester supérieur ou égal à 1 ;
@@ -261,10 +254,21 @@ Le lot est acceptable lorsque les tests automatisés démontrent :
 11. une même empreinte de source ne peut pas créer deux lots pour le même fournisseur ;
 12. deux fournisseurs différents peuvent utiliser la même empreinte sans collision ;
 13. une même clé de résolution ne peut être appliquée à deux items ;
-14. la suppression d'un lot possédant des items est refusée par la relation `RESTRICT`.
+14. la suppression d'un lot possédant des items est refusée par la relation `RESTRICT` ;
+15. l'adaptateur de test produit la même empreinte pour une même source normalisée ;
+16. l'import applicatif réutilise un lot existant pour la même paire fournisseur/empreinte ;
+17. les routes internes refusent une identité de service absente ou invalide.
 
-## 17. Étapes suivantes
+## 17. État et étapes suivantes
 
-La tranche suivante doit ajouter les repositories Prisma des lots et items, une transaction de création/import de lot, puis un import fournisseur de test utilisant une source tabulaire fictive. Elle devra recalculer les compteurs de lot de façon atomique et couvrir l'idempotence d'import.
+La tranche repository + adaptateur fournisseur de test + branchement NestJS est désormais engagée.
 
-Avant production, il restera à ajouter les tests PostgreSQL/concurrence, les métriques exportées, les seuils d'alerte, les adaptateurs partenaires réels et les runbooks de reprise.
+La tranche suivante doit prioritairement ajouter :
+
+- tests automatisés de l'adaptateur fournisseur ;
+- tests PostgreSQL réels de persistance et d'idempotence concurrente ;
+- tests de contrat des routes internes ;
+- pagination par curseur conforme au contrat public partagé ;
+- résolution manuelle atomique avec idempotence et journal d'audit.
+
+Avant production, il restera également à ajouter les métriques exportées, les seuils d'alerte, les adaptateurs partenaires réels, les règles tenant/organisation complètes et les runbooks de reprise.
