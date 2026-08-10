@@ -201,3 +201,17 @@ La migration est considérée prête lorsque :
 ## 11. Hors périmètre immédiat
 
 Cette migration ne remplace pas l’authentification workload définitive. Tant que celle-ci n’est pas disponible, l’API interne peut utiliser une identité de service transitoire, mais `organizationId` doit rester une donnée d’autorisation dérivée d’un contexte contrôlé et jamais une confiance aveugle dans un fichier ou une requête externe.
+
+## 12. État d’implémentation
+
+La phase structurelle est engagée dans `mansa-platform` :
+
+- `ReconciliationBatch.organizationId` et `ReconciliationItem.organizationId` sont présents dans le schéma Prisma cible ;
+- l’unicité d’import devient `(organizationId, providerId, sourceFingerprint)` ;
+- l’idempotence de résolution devient locale au tenant via `(organizationId, resolutionIdempotencyKey)` ;
+- les index de lecture et de pagination sont préfixés par `organizationId` ;
+- une migration SQL dédiée refuse explicitement d’inventer une organisation lorsque des données historiques existent.
+
+La migration automatique actuelle est donc volontairement sûre sur une base vide. Sur une base déjà peuplée, son échec est attendu tant qu’un backfill explicite n’a pas été réalisé selon le runbook. Cette protection empêche qu’une valeur de tenant arbitraire soit injectée silencieusement.
+
+La prochaine tranche doit porter l’organisation jusque dans le repository, le service d’import, les routes internes et les tests PostgreSQL inter-tenant avant de considérer la phase structurelle comme activable en environnement partagé.
