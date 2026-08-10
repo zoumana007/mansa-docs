@@ -39,13 +39,17 @@ Les routes de lecture ne doivent jamais exiger un scope d’écriture uniquement
 
 ## Frontière de vérification
 
-`WorkloadIdentityVerifier` définit la frontière technique de vérification de la credential brute. Une implémentation de production pourra utiliser notamment :
+`WorkloadIdentityVerifier` définit la frontière technique de vérification de la credential brute.
+
+Une première implémentation cryptographique stricte existe désormais : `HmacWorkloadIdentityVerifier`. Elle vérifie un JWT HS256 signé avec un secret d’au moins 32 octets, impose `issuer` et `audience`, refuse les algorithmes inattendus et utilise une comparaison de signature résistante aux attaques temporelles.
+
+Cette implémentation est adaptée au socle interne contrôlé et aux environnements de développement/intégration. Pour une architecture de production distribuée, la cible reste un mécanisme dont la rotation et la révocation ne reposent pas sur un secret symétrique partagé globalement, par exemple :
 
 - OIDC avec issuer et audience contrôlés et clés JWKS ;
 - mTLS avec identité de certificat contrôlée ;
 - SPIFFE/SPIRE ou mécanisme équivalent d’identité de workload.
 
-Le mécanisme retenu doit être documenté par ADR avant activation en production.
+Le mécanisme définitif doit être documenté par ADR avant généralisation en production.
 
 La credential brute ne doit jamais être persistée ni journalisée.
 
@@ -101,20 +105,18 @@ Un `organizationId` reçu depuis l’appelant ne doit pas pouvoir élargir la po
 
 ## Migration du rapprochement
 
-État actuel : le repository de rapprochement applique déjà l’isolation tenant au niveau Prisma, mais le contrôleur demande encore `organizationId` à l’appelant derrière `InternalServiceGuard`.
+La migration du contrôleur de rapprochement est désormais réalisée sur les routes de consultation et de résolution :
 
-Migration prévue :
+- `WorkloadIdentityGuard` et `WorkloadScopeGuard` sont câblés dans le module NestJS ;
+- `HmacWorkloadIdentityVerifier` est enregistré derrière `WORKLOAD_IDENTITY_VERIFIER` ;
+- les routes de lecture exigent `reconciliation:read` ;
+- la résolution exige `reconciliation:write` ;
+- l’organisation provient de `request.workloadIdentity.organizationId` ;
+- les routes ne dépendent plus d’un `organizationId` fourni librement par l’appelant ;
+- l’acteur d’une résolution provient du `workloadId` attesté ;
+- le repository continue d’appliquer la portée tenant directement dans les requêtes Prisma.
 
-1. fournir une implémentation de production de `WorkloadIdentityVerifier` ;
-2. enregistrer le verifier et les deux guards dans le module NestJS ;
-3. appliquer `WorkloadIdentityGuard` puis `WorkloadScopeGuard` ;
-4. supprimer `organizationId` des paramètres publics des routes internes ;
-5. utiliser `request.workloadIdentity.organizationId` ;
-6. appliquer `reconciliation:read` aux lectures ;
-7. appliquer `reconciliation:write` aux résolutions/imports ;
-8. couvrir les tentatives inter-tenant et scopes insuffisants en tests HTTP et PostgreSQL.
-
-La migration ne doit pas être activée avec un verifier factice permissif.
+Les tests couvrent le guard, les scopes, la dérivation du tenant depuis l’identité attestée et la séparation organisationnelle déjà validée au niveau repository/PostgreSQL.
 
 ## Journalisation et corrélation
 
@@ -128,9 +130,24 @@ Les événements d’audit peuvent conserver :
 
 Aucun JWT, bearer token, certificat privé ou secret ne doit être écrit dans les logs.
 
+## Rotation, révocation et anti-rejeu
+
+La présence de `tokenId` permet d’identifier de manière stable une credential émise, mais le socle actuel ne fournit pas encore de registre distribué de révocation ou de détection de rejeu.
+
+Avant généralisation en production, il faut ajouter :
+
+- rotation des clés sans interruption ;
+- mécanisme de révocation rapide d’un workload ou d’une clé ;
+- stratégie anti-rejeu adaptée aux opérations mutantes sensibles ;
+- stockage distribué ou mécanisme équivalent lorsque plusieurs instances d’API Gateway sont actives ;
+- métriques sur refus d’authentification, scopes insuffisants, issuer/audience invalides et credentials expirées ;
+- alerte sur hausse anormale des refus ou tentative de réutilisation.
+
+Un simple cache mémoire local ne doit pas être présenté comme protection anti-rejeu complète dans un déploiement horizontal.
+
 ## Critères de recette
 
-La tranche est considérée prête pour intégration lorsque :
+La tranche runtime actuelle est considérée intégrée lorsque :
 
 - le contrat partagé est couvert par tests ;
 - le guard d’authentification rejette credential absente, invalide et identité expirée ;
@@ -139,8 +156,10 @@ La tranche est considérée prête pour intégration lorsque :
 - un workload d’une organisation ne peut pas lire ou modifier les données d’une autre ;
 - les erreurs ne révèlent pas le contenu de la credential ;
 - les routes migrées ne dépendent plus d’un `organizationId` fourni librement par l’appelant ;
-- le verifier de production contrôle issuer/audience ou identité mTLS équivalente ;
-- la rotation des clés/certificats est documentée et testée.
+- le verifier contrôle issuer, audience, algorithme et signature ;
+- le comportement HMAC est couvert par tests de signature valide, altération, algorithme non supporté, issuer/audience invalides et configuration faible.
+
+Pour la production distribuée, restent des critères supplémentaires : rotation/révocation, anti-rejeu distribué, observabilité de sécurité et mécanisme d’identité de workload définitif validé par ADR.
 
 ## État d’implémentation
 
@@ -148,9 +167,22 @@ Implémenté dans `mansa-platform` :
 
 - contrat et validation `WorkloadIdentity` ;
 - abstraction `WorkloadIdentityVerifier` ;
+- `HmacWorkloadIdentityVerifier` avec validation cryptographique stricte HS256, issuer et audience ;
+- tests unitaires du verifier HMAC ;
 - `WorkloadIdentityGuard` ;
 - tests du guard d’authentification ;
 - `WorkloadScopeGuard` et décorateur `RequireWorkloadScopes` ;
-- tests fail-closed des scopes.
+- tests fail-closed des scopes ;
+- câblage NestJS du verifier et des guards dans le module rapprochement ;
+- migration des routes de rapprochement vers l’organisation attestée ;
+- scopes `reconciliation:read` et `reconciliation:write` ;
+- acteur de résolution dérivé du `workloadId` attesté ;
+- tests de tenant dérivé du workload.
 
-Restent à réaliser : verifier de production, câblage NestJS, migration des contrôleurs internes, suppression des portées fournies par l’appelant, tests d’intégration et procédures de rotation/révocation.
+Restent à réaliser :
+
+1. généraliser progressivement la même identité workload aux autres contrôleurs internes, notamment Ledger et opérations ;
+2. définir l’ADR du mécanisme d’identité de production ;
+3. mettre en place rotation/révocation et anti-rejeu distribué pour les opérations sensibles ;
+4. exposer métriques et alertes de sécurité ;
+5. retirer `InternalServiceGuard` uniquement après migration complète et recette des routes concernées.
