@@ -2,7 +2,7 @@
 
 ## 1. Objet
 
-Cette tranche introduit un registre générique d’idempotence destiné aux mutations sensibles de Mansa. Le premier branchement concerne les transitions de statut du domaine accès et mobilité, mais la table et le composant sont volontairement transversaux afin d’être réutilisés ensuite par les paiements, l’administration, les services État et les autres opérations à effet de bord.
+Cette tranche introduit un registre générique d’idempotence destiné aux mutations sensibles de Mansa. Le composant est transversal afin d’être réutilisé par les domaines accès, paiements, administration, services État et autres opérations à effet de bord.
 
 Implémentation de référence :
 
@@ -11,7 +11,7 @@ mansa-platform/apps/api-gateway/src/idempotency/operation-idempotency.registry.t
 mansa-platform/apps/api-gateway/prisma/migrations/20260810064000_operation_idempotency_registry/migration.sql
 ```
 
-Le module accès utilise le registre dans :
+Le domaine accès orchestre ce registre dans :
 
 ```text
 mansa-platform/apps/api-gateway/src/access/access.service.ts
@@ -25,80 +25,117 @@ Une entrée est unique par :
 scope + organizationId + idempotencyKey
 ```
 
-Le `scope` sépare les familles d’opérations. Les deux premiers scopes actifs sont :
+Scopes actifs :
 
 ```text
 ACCESS_CREDENTIAL_STATUS
 ACCESS_ENTITLEMENT_STATUS
+ACCESS_CREDENTIAL_REPLACEMENT
 ```
 
-La même chaîne d’idempotence peut donc être utilisée dans deux scopes différents sans collision. Elle ne peut pas être réutilisée dans un même scope et tenant avec une charge utile différente.
+La même chaîne d’idempotence peut être utilisée dans deux scopes différents sans collision. Elle ne peut pas être réutilisée dans un même scope et tenant avec une charge utile différente.
 
 ## 3. Empreinte de requête
 
-Le registre calcule une empreinte SHA-256 de la charge métier normalisée. Pour les transitions d’accès, l’empreinte couvre :
+Le registre calcule une empreinte SHA-256 de la charge métier. Pour les transitions de statut, elle couvre l’identifiant de ressource, le statut cible et la raison. Pour un remplacement de credential, elle couvre :
 
-- identifiant de la ressource ;
-- statut cible ;
-- raison métier.
+- l’identifiant du credential remplacé ;
+- le credential de remplacement complet ;
+- la raison métier.
 
-Le `correlationId` n’entre pas dans cette empreinte : un rejeu réseau peut recevoir un nouvel identifiant de corrélation tout en représentant exactement la même commande métier.
+Le `correlationId` n’entre pas dans l’empreinte : un rejeu réseau peut porter un nouvel identifiant de corrélation tout en représentant la même commande métier.
 
-Si une clé existante porte une autre empreinte, la commande est rejetée avec un conflit explicite :
+Une clé existante associée à une charge différente est rejetée avec :
 
 ```text
 idempotency key already used with a different payload
 ```
 
-Cette règle empêche qu’une clé déjà consommée serve ensuite à demander une autre mutation.
-
 ## 4. Réponse persistée
 
-Une opération réussie enregistre sa réponse JSON dans le registre avec l’état :
+Une opération réussie enregistre sa réponse JSON avec l’état `COMPLETED`. Un rejeu ultérieur avec la même clé et la même empreinte retourne la réponse initiale persistée, même si l’état courant a ensuite évolué.
+
+Pour le remplacement d’un credential, la réponse persistée contient :
 
 ```text
-COMPLETED
+revokedCredential
+replacementCredential
 ```
 
-Un rejeu ultérieur avec la même clé et la même empreinte retourne cette réponse persistée, même si l’état courant de la ressource a évolué depuis sous l’effet d’une autre commande.
+Le rejeu ne doit jamais créer un second credential de remplacement.
 
-Ce comportement est important : l’idempotence rejoue le résultat de la commande initiale et ne transforme pas le rejeu en nouvelle lecture de l’état courant.
+## 5. État PROCESSING et récupération
 
-## 5. État PROCESSING
+Une nouvelle clé est d’abord réservée avec `PROCESSING`. L’unicité PostgreSQL protège les appels concurrents.
 
-Une nouvelle clé est d’abord réservée avec :
+Pour les transitions, la récupération vérifie que la ressource tenant-scopée se trouve déjà dans le statut cible.
+
+Pour le remplacement, la récupération vérifie simultanément :
+
+- que l’ancien credential appartient au tenant et est `REVOKED` ;
+- que le nouveau credential appartient au même tenant et existe sous l’identifiant fourni dans la commande.
+
+Si ces deux conditions sont satisfaites après une interruption située entre l’effet métier et la finalisation du registre, la réponse est reconstruite puis la réservation est marquée `COMPLETED`.
+
+## 6. Remplacement sécurisé d’un credential
+
+Route de référence :
 
 ```text
-PROCESSING
+POST /v1/internal/access/credentials/:credentialId/replacement
 ```
 
-L’unicité PostgreSQL protège les traitements concurrents. Une seule tentative peut créer la réservation pour un même triplet `scope + organizationId + idempotencyKey`.
-
-Pour les transitions de statut, un mécanisme de récupération complète les rejeux interrompus : si une entrée reste `PROCESSING` mais que la ressource est déjà dans le statut cible, le service reconstruit la réponse depuis l’état tenant-scopé, marque l’entrée `COMPLETED` puis retourne cette réponse.
-
-Cette récupération couvre notamment une interruption située après l’effet métier mais avant la persistance finale de la réponse d’idempotence.
-
-## 6. Échec avant effet durable
-
-Si l’opération métier échoue, la réservation `PROCESSING` est supprimée. Un appel corrigé ou un retry peut alors reprendre avec la même clé, à condition que la charge utile corresponde au comportement attendu par le client.
-
-Les opérations qui seront branchées ultérieurement doivent définir une stratégie de récupération adaptée lorsque leur effet est observable dans un autre registre durable.
-
-## 7. Isolation multi-tenant
-
-Le registre est tenant-scopé par `organizationId`. Une clé utilisée par une organisation ne bloque pas la même clé chez une autre organisation.
-
-La récupération d’une opération accès passe également par les lectures tenant-scopées du repository d’accès. Elle ne doit jamais lire une ressource d’un autre tenant pour conclure qu’une opération a réussi.
-
-## 8. Persistance PostgreSQL
-
-La migration crée :
+Contrat partagé :
 
 ```text
-OperationIdempotencyRecord
+ReplaceAccessCredentialCommand
+ReplaceAccessCredentialResult
 ```
 
-Champs principaux :
+Le workflow réalise dans une seule transaction PostgreSQL :
+
+1. lecture de l’ancien credential ;
+2. vérification stricte du tenant ;
+3. refus d’un credential déjà `REVOKED` ou `EXPIRED` ;
+4. vérification que le nouveau credential appartient au même tenant ;
+5. vérification que le `subjectId` reste identique ;
+6. contrôle d’unicité de l’identifiant et de la référence publique du nouveau credential ;
+7. révocation définitive de l’ancien credential ;
+8. création du nouveau credential ;
+9. écriture d’un audit `ACCESS_CREDENTIAL_REPLACED` contenant les deux identifiants.
+
+Le lien historique est conservé dans l’audit sous :
+
+```text
+replacesCredentialId
+replacedByCredentialId
+```
+
+Cette approche constitue l’équivalent auditable demandé sans ajouter de colonnes de relation au modèle credential tant que les cas de remplacement en chaîne ne nécessitent pas une navigation SQL directe.
+
+## 7. Concurrence et atomicité
+
+Le registre d’idempotence empêche deux exécutions concurrentes de la même commande. La transaction du repository empêche les états partiels :
+
+- l’ancien credential ne peut pas être révoqué sans création du remplaçant ;
+- le nouveau credential ne peut pas être créé sans révocation de l’ancien ;
+- l’audit doit réussir dans la même transaction.
+
+Une seconde commande distincte visant à remplacer un credential déjà révoqué est rejetée. Elle ne peut donc pas produire un second remplaçant silencieux.
+
+## 8. Isolation multi-tenant
+
+Le registre est tenant-scopé par `organizationId`. Le workflow refuse explicitement :
+
+- un ancien credential appartenant à une autre organisation ;
+- un credential de remplacement dont `organizationId` diffère ;
+- une récupération idempotente reposant sur une ressource d’un autre tenant.
+
+Le remplacement impose également le même `subjectId`, afin qu’une opération de sécurité ne puisse pas transférer implicitement un credential vers un autre véhicule, usager ou équipement.
+
+## 9. Persistance du registre
+
+La table `OperationIdempotencyRecord` contient notamment :
 
 - `scope` ;
 - `organizationId` ;
@@ -110,16 +147,14 @@ Champs principaux :
 - `createdAt` ;
 - `completedAt`.
 
-Contraintes :
+Contraintes principales :
 
 ```text
 UNIQUE(scope, organizationId, idempotencyKey)
 status IN (PROCESSING, COMPLETED)
 ```
 
-Des index existent également sur l’organisation/date et la corrélation pour les besoins d’exploitation et d’audit.
-
-## 9. Recette PostgreSQL
+## 10. Recette PostgreSQL
 
 Suite dédiée :
 
@@ -127,14 +162,19 @@ Suite dédiée :
 mansa-platform/apps/api-gateway/test/idempotency-postgres.test.mjs
 ```
 
-Elle vérifie notamment :
+Elle vérifie désormais :
 
-- rejeu de la réponse initiale avec la même clé et la même charge ;
-- absence de nouvelle mutation pendant le rejeu ;
-- conservation du résultat historique même si la ressource a ensuite changé d’état ;
-- rejet d’une réutilisation de la même clé avec une charge différente.
+- rejeu d’une transition sans nouvelle mutation ;
+- rejet d’une clé réutilisée avec une charge différente ;
+- révocation atomique de l’ancien credential ;
+- création unique du remplaçant ;
+- rejeu du résultat de remplacement ;
+- unicité de l’audit `ACCESS_CREDENTIAL_REPLACED` ;
+- présence de `replacesCredentialId` et `replacedByCredentialId` dans l’audit ;
+- rejet d’un remplacement cross-tenant ;
+- rejet d’un changement de sujet lors du remplacement.
 
-La commande consolidée est :
+Commande consolidée :
 
 ```bash
 cd apps/api-gateway
@@ -143,23 +183,14 @@ pnpm test:postgres
 
 Elle exige une base PostgreSQL de recette et ne doit jamais viser la production.
 
-## 10. Portée actuelle et prochain lot
+## 11. Portée actuelle et prochain lot
 
-Le composant est générique mais le branchement opérationnel initial couvre uniquement :
+Le registre protège maintenant :
 
 ```text
 PATCH /v1/internal/access/credentials/:credentialId/status
 PATCH /v1/internal/access/entitlements/:entitlementId/status
+POST  /v1/internal/access/credentials/:credentialId/replacement
 ```
 
-Le prochain lot cohérent doit réutiliser ce registre pour le remplacement d’un credential perdu ou compromis. Ce workflow devra :
-
-1. révoquer définitivement l’ancien credential ;
-2. créer un nouveau credential ;
-3. conserver le lien `replacesCredentialId` / `replacedByCredentialId` ou un équivalent auditable ;
-4. être protégé par une seule commande idempotente ;
-5. préserver l’isolation multi-tenant ;
-6. empêcher deux remplacements concurrents du même credential ;
-7. couvrir le scénario par une recette PostgreSQL.
-
-Après ce remplacement sécurisé, les lots prioritaires restent la disponibilité de service, les profils et états de terminaux, l’enregistrement d’usage et les validations espèces avant extension aux mutations financières et administratives des autres modules.
+Le prochain lot prioritaire du domaine accès doit porter sur la disponibilité de service et le mode dégradé des points de passage. Le socle de données existe déjà avec `AccessServiceAvailabilityRecord` ; il reste à exposer une mutation idempotente tenant-scopée, son audit, les lectures HTTP et la recette PostgreSQL. Ensuite viennent les profils/états de terminaux, l’enregistrement d’usage et les validations espèces.
