@@ -2,17 +2,18 @@
 
 ## 1. Objet
 
-Ce document complète `10-moteur-rapprochement-financier.md` en décrivant la tranche de validation réelle de la persistance PostgreSQL du moteur de rapprochement Mansa.
+Ce document complète `10-moteur-rapprochement-financier.md` en décrivant la validation réelle de la persistance PostgreSQL et des principales frontières API du moteur de rapprochement Mansa.
 
-L'objectif est de vérifier les propriétés qui ne peuvent pas être démontrées uniquement par des tests unitaires du moteur pur ou par la validation statique du schéma Prisma : transactionnalité, normalisation persistée, idempotence réelle, comportement sous concurrence et bornes de lecture.
+L'objectif est de vérifier les propriétés qui ne peuvent pas être démontrées uniquement par des tests unitaires du moteur pur ou par la validation statique du schéma Prisma : transactionnalité, normalisation persistée, idempotence réelle, comportement sous concurrence, pagination stable, résolution manuelle atomique et audit opérationnel.
 
 ## 2. Périmètre testé
 
-Le test d'intégration de référence se trouve dans :
+Les tests de référence se trouvent dans :
 
-`mansa-platform/apps/api-gateway/test/reconciliation-postgres.test.mjs`.
+- `mansa-platform/apps/api-gateway/test/reconciliation-postgres.test.mjs` ;
+- `mansa-platform/apps/api-gateway/test/reconciliation-controller.test.mjs`.
 
-Il est volontairement opt-in pour éviter qu'un environnement de développement sans PostgreSQL échoue lors des tests ordinaires. Son exécution exige :
+Le test PostgreSQL est volontairement opt-in pour éviter qu'un environnement de développement sans PostgreSQL échoue lors des tests ordinaires. Son exécution exige :
 
 ```text
 RUN_POSTGRES_TESTS=1
@@ -25,9 +26,11 @@ Le script dédié du package API est :
 pnpm --filter @mansa/api-gateway test:postgres
 ```
 
+Les tests de contrôleur font partie de la suite standard `pnpm test` du package API.
+
 ## 3. Environnement CI
 
-La CI principale de `mansa-platform` démarre un service PostgreSQL éphémère, génère le client Prisma, applique les migrations versionnées puis exécute les tests classiques et le test d'intégration PostgreSQL.
+La CI principale de `mansa-platform` démarre un service PostgreSQL éphémère, génère le client Prisma, applique les migrations versionnées puis exécute les tests classiques et les tests d'intégration PostgreSQL.
 
 Le compte et le mot de passe utilisés dans la CI sont uniquement des valeurs de test locales au job GitHub Actions. Aucun secret de production n'est stocké dans le dépôt.
 
@@ -87,28 +90,94 @@ Le test lance plusieurs imports simultanés de la même source et vérifie :
 - une seule ligne de lot pour la paire fournisseur/empreinte ;
 - aucun doublon d'item produit par les appels perdants.
 
-Cette protection est nécessaire avant de brancher des workers ou plusieurs réplicas API sur les imports de fichiers de règlement.
+## 7. Pagination par curseur
 
-## 7. Lectures bornées
+Les lectures de lots et d'items utilisent désormais une pagination keyset stable avec enveloppe :
 
-Les méthodes de lecture doivent rester bornées même lorsqu'un appelant demande une limite excessive.
+```text
+{
+  data: [...],
+  page: {
+    hasNextPage: boolean,
+    nextCursor?: string
+  }
+}
+```
 
-La validation PostgreSQL confirme actuellement :
+Les curseurs encodent le couple `(createdAt, id)` afin de départager les lignes partageant le même timestamp.
 
-- `listBatches` : maximum 100 lots ;
-- `listItems` : maximum 500 items par lot.
+Ordre de référence :
 
-Ces plafonds protègent la base et l'API interne contre les lectures accidentellement non bornées. Ils ne remplacent pas la pagination par curseur prévue dans le contrat partagé.
+- lots : `createdAt DESC, id DESC` ;
+- items : `createdAt ASC, id ASC`.
 
-## 8. Nettoyage des données de test
+Limites maximales :
 
-Chaque exécution utilise des identifiants fournisseur et empreintes uniques. Les lots et items créés sont supprimés en fin de test avant déconnexion Prisma.
+- `listBatches` : 100 ;
+- `listItems` : 500.
+
+Un curseur illisible ou mal formé est rejeté au niveau API avec une erreur `400` plutôt que d'être interprété silencieusement.
+
+## 8. Résolution manuelle atomique
+
+Un écart `MISMATCHED` ou `PARTIALLY_MATCHED` peut être clôturé en `RESOLVED` ou `IGNORED` uniquement via une commande explicite contenant au minimum :
+
+```text
+resolutionNote
+reasonCode
+idempotencyKey
+correlationId
+actorId
+actorType
+```
+
+La même clé d'idempotence rejouée avec la même ressource et le même résultat retourne la résolution existante sans incrémenter de nouveau les compteurs.
+
+Une clé déjà utilisée pour une autre ressource ou un autre résultat est rejetée.
+
+## 9. Audit opérationnel transactionnel
+
+La mutation de l'item, l'incrément de `resolvedItems` ou `ignoredItems` sur le lot et la création de `OperationalAuditLog` sont exécutés dans la même transaction Prisma/PostgreSQL.
+
+L'audit conserve :
+
+- corrélation ;
+- acteur ;
+- type d'acteur ;
+- action `RECONCILIATION_ITEM_RESOLVED` ou `RECONCILIATION_ITEM_IGNORED` ;
+- ressource ;
+- motif ;
+- note de résolution ;
+- lot parent ;
+- motif d'écart initial.
+
+Un échec d'audit doit annuler la résolution au lieu de produire une mutation non traçable.
+
+## 10. Validation du contrôleur interne
+
+`reconciliation-controller.test.mjs` couvre les frontières de transport déjà implémentées :
+
+- limites par défaut ;
+- bornes maximales ;
+- transmission du curseur ;
+- rejet des limites invalides ;
+- rejet des curseurs invalides ;
+- `404` sur lot ou item absent ;
+- validation de `RESOLVED | IGNORED` ;
+- transformation des erreurs métier attendues en erreurs HTTP ;
+- transmission intégrale des champs nécessaires à l'idempotence et à l'audit.
+
+Toutes les routes internes restent protégées par `InternalServiceGuard`.
+
+## 11. Nettoyage des données de test
+
+Chaque exécution PostgreSQL utilise des identifiants fournisseur et empreintes uniques. Les audits, items et lots créés sont supprimés en fin de test avant déconnexion Prisma.
 
 Le test ne dépend d'aucune donnée de production et ne doit jamais être pointé vers une base réelle. Les environnements de recette ou de production doivent utiliser des procédures de validation séparées et explicitement autorisées.
 
-## 9. Cohérence avec le contrat fonctionnel
+## 12. Cohérence avec le contrat fonctionnel
 
-Cette tranche couvre les critères de recette suivants du moteur de rapprochement :
+Cette tranche couvre désormais :
 
 - persistance réelle des lots et items ;
 - réutilisation d'une source déjà importée ;
@@ -116,20 +185,23 @@ Cette tranche couvre les critères de recette suivants du moteur de rapprochemen
 - concurrence d'import ;
 - normalisation aux frontières ;
 - compteurs matérialisés ;
-- lectures bornées.
+- pagination par curseur ;
+- lectures bornées ;
+- résolution manuelle idempotente ;
+- audit atomique ;
+- validation du contrôleur interne.
 
 Elle ne clôt pas le module complet.
 
-## 10. Étapes suivantes
+## 13. Étapes suivantes
 
 Les prochaines tranches cohérentes sont :
 
-1. tests de contrat HTTP des routes internes de consultation avec identité de service valide/invalide ;
-2. pagination par curseur alignée sur `@mansa/contracts/reconciliation-api` ;
-3. résolution manuelle atomique des écarts avec clé d'idempotence ;
-4. `OperationalAuditLog` dans la même transaction que la résolution ;
-5. isolation tenant/organisation complète ;
-6. métriques et alertes de rapprochement ;
-7. premiers adaptateurs partenaires réels, sans secret versionné.
+1. isolation tenant/organisation complète des lots, items, recherches et résolutions ;
+2. filtres de consultation prévus par `@mansa/contracts/reconciliation-api` ;
+3. sérialisation stricte des réponses HTTP selon les DTO partagés ;
+4. identité workload attestée pour les routes internes ;
+5. métriques et alertes de rapprochement ;
+6. premiers adaptateurs partenaires réels, sans secret versionné.
 
-Aucun endpoint de résolution ne doit être exposé avant que l'autorisation, l'idempotence et l'audit transactionnel soient couverts par des tests.
+Aucune exposition à des partenaires externes ne doit précéder l'isolation tenant et la validation d'identité workload.
